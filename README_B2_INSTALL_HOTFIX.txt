@@ -1,0 +1,1 @@
+Extract into C:\MARL_AnyLogic\MAPPO_NEW\thesis; then run python scripts/apply_dispatch_paper_patch_v121_safe.py; python tests/test_dispatch_paper_mask_v121.py. Keeps [DISP DEBUG] in the source and saves .paper_b2_backup. Run only once.

@@ -1,0 +1,27 @@
+# Python virtual environments
+.venv/
+.venv311/
+.venv*/
+venv/
+
+# Python cache
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# MAPPO training results
+mappo_runs/
+*.pt
+*.pth
+*.ckpt
+
+# Logs and secrets
+*.log
+.env
+.env.*
+
+# VS Code
+.vscode/
+
+# Archived projects and backups
+*.zip
