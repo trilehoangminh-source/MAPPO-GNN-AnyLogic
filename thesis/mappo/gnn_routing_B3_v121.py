@@ -143,9 +143,9 @@ class GraphRoutingActor(nn.Module):
         mov_i, mov_valid = self._match(neighbors)
         b = torch.arange(batch, device=agvs.device)
         # For unmapped geometry, preserve differentiability via coordinate fallback.
-        pos_emb = torch.where(pos_valid, h[b, pos_i[:, 0]].unsqueeze(1),
+        pos_emb = torch.where(pos_valid.unsqueeze(-1), h[b, pos_i[:, 0]].unsqueeze(1),
                               self.fallback(torch.cat((pos/self.scale, (pos-target)/self.scale), -1)).unsqueeze(1))[:, 0]
-        tar_emb = torch.where(tar_valid, h[b, tar_i[:, 0]].unsqueeze(1),
+        tar_emb = torch.where(tar_valid.unsqueeze(-1), h[b, tar_i[:, 0]].unsqueeze(1),
                               self.fallback(torch.cat((target/self.scale, (target-pos)/self.scale), -1)).unsqueeze(1))[:, 0]
         sampled = h[b.unsqueeze(-1), mov_i]
         mov_fallback = self.fallback(torch.cat(((neighbors-pos.unsqueeze(1))/self.scale,

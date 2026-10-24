@@ -230,7 +230,7 @@ else
 					<Properties SaveInSnapshot="true" Constant="false" AccessType="public" StaticVariable="false">
 						<Type><![CDATA[String]]></Type>        
 						<InitialValue Class="CodeValue">
-							<Code><![CDATA["C:/MARL_AnyLogic/thesis"]]></Code>
+							<Code><![CDATA["C:/MARL_AnyLogic/MAPPO_NEW/thesis"]]></Code>
 						</InitialValue>
 					</Properties>
 				</Variable>
@@ -245,7 +245,7 @@ else
 					<Properties SaveInSnapshot="true" Constant="false" AccessType="public" StaticVariable="false">
 						<Type><![CDATA[String]]></Type>        
 						<InitialValue Class="CodeValue">
-							<Code><![CDATA["matrix_visual"]]></Code>
+							<Code><![CDATA["matrix_mappo_v8_15agv"]]></Code>
 						</InitialValue>
 					</Properties>
 				</Variable>
@@ -1270,53 +1270,76 @@ else
 					<PublicFlag>false</PublicFlag>
 					<PresentationFlag>true</PresentationFlag>
 					<ShowLabel>true</ShowLabel>
-					<Body><![CDATA[if(runmode == 3)
+					<Body><![CDATA[
+if (runmode == 3)
 {
-	py.run("import sys");
-	py.run("sys.path.append('"+RL_pypeline_path+"')");
-	py.run("from thesis.pypeline_connectors."+RL_pypeline_name+" import get_action, get_config");
-	// Sim Parameters
-	fleetsize = py.runResults("get_config('fleetsize')").
-		getFeedback(Integer.class);
-	RL_dispatch = py.runResults("get_config('dispatch')").
-		getFeedback(Boolean.class);
-	RL_fixed_fleets = py.runResults("get_config('fixed_fleets')").
-		getFeedback(Boolean.class);
-	RL_routing_ma = py.runResults("get_config('routing_ma')").
-		getFeedback(Boolean.class);
-	RL_dispatching_ma = py.runResults("get_config('dispatching_ma')").
-		getFeedback(Boolean.class);
-	RL_routing_interval = py.runResults("get_config('routing_interval')").
-		getFeedback(Double.class);
-	RL_dispatching_interval = py.runResults("get_config('dispatching_interval')").
-		getFeedback(Double.class);
-	RL_coordinates = py.runResults("get_config('coordinates')").
-		getFeedback(Boolean.class);
-	RL_with_collisions = py.runResults("get_config('with_collisions')").
-		getFeedback(Boolean.class);	
-	RL_block_timeout = py.runResults("get_config('block_timeout')").
-		getFeedback(Integer.class);
-	RL_remove_all_blocked = py.runResults("get_config('remove_all_blocked')").
-		getFeedback(Boolean.class);	
-		
-	// AGV Parameters
-	RL_obs_include_nodes_in_reach = py.runResults("get_config('obs_include_nodes_in_reach')").
-		getFeedback(Boolean.class);
-	RL_obs_include_agv_target = py.runResults("get_config('obs_include_agv_target')").
-		getFeedback(Boolean.class);
-	RL_obs_include_part_info = py.runResults("get_config('obsrout_include_part_info')").
-		getFeedback(Boolean.class);
+    py.run("import sys");
+    py.run("sys.path.append('" + RL_pypeline_path + "')");
+    py.run("from thesis.pypeline_connectors." + RL_pypeline_name
+        + " import get_action, get_config");
 
-	// Station Parameters
-	station_availability = py.runResults("get_config('station_availability')").
-		getFeedback(Double.class);
-	station_mttr = py.runResults("get_config('station_mttr')").
-		getFeedback(Double.class);
-	station_io_quote = py.runResults("get_config('station_io_quote')").
-		getFeedback(Double.class);
+    // Sim Parameters
+    fleetsize = py.runResults("get_config('fleetsize')")
+        .getFeedback(Integer.class);
 
+    RL_dispatch = py.runResults("get_config('dispatch')")
+        .getFeedback(Boolean.class);
 
-}]]></Body>
+    RL_fixed_fleets = py.runResults("get_config('fixed_fleets')")
+        .getFeedback(Boolean.class);
+
+    RL_routing_ma = py.runResults("get_config('routing_ma')")
+        .getFeedback(Boolean.class);
+
+    RL_dispatching_ma = py.runResults("get_config('dispatching_ma')")
+        .getFeedback(Boolean.class);
+
+    RL_routing_interval = py.runResults("get_config('routing_interval')")
+        .getFeedback(Double.class);
+
+    RL_dispatching_interval = py.runResults("get_config('dispatching_interval')")
+        .getFeedback(Double.class);
+
+    RL_coordinates = py.runResults("get_config('coordinates')")
+        .getFeedback(Boolean.class);
+
+    RL_with_collisions = py.runResults("get_config('with_collisions')")
+        .getFeedback(Boolean.class);
+
+    RL_block_timeout = py.runResults("get_config('block_timeout')")
+        .getFeedback(Integer.class);
+
+    RL_remove_all_blocked = py.runResults("get_config('remove_all_blocked')")
+        .getFeedback(Boolean.class);
+
+    // AGV Parameters
+    RL_obs_include_nodes_in_reach =
+        py.runResults("get_config('obs_include_nodes_in_reach')")
+        .getFeedback(Boolean.class);
+
+    RL_obs_include_agv_target =
+        py.runResults("get_config('obs_include_agv_target')")
+        .getFeedback(Boolean.class);
+
+    // FIX: Correct configuration key
+    RL_obs_include_part_info =
+        py.runResults("get_config('obs_include_part_info')")
+        .getFeedback(Boolean.class);
+
+    // Station Parameters
+    station_availability =
+        py.runResults("get_config('station_availability')")
+        .getFeedback(Double.class);
+
+    station_mttr =
+        py.runResults("get_config('station_mttr')")
+        .getFeedback(Double.class);
+
+    station_io_quote =
+        py.runResults("get_config('station_io_quote')")
+        .getFeedback(Double.class);
+}
+]]></Body>
 				</Function>
 				<Function AccessType="default" StaticFunction="false">
 					<ReturnModificator>VOID</ReturnModificator>
@@ -3883,7 +3906,7 @@ return str;]]></Body>
 						<Parameter>
 							<Name><![CDATA[pythonExecPath]]></Name>
 							<Value Class="CodeValue">
-								<Code><![CDATA["C:/MARL_AnyLogic/.venv39/Scripts/python.exe"]]></Code>
+								<Code><![CDATA["C:/MARL_AnyLogic/MAPPO_NEW/thesis/.venv311/Scripts/python.exe"]]></Code>
 							</Value>
 						</Parameter>
 						<Parameter>
@@ -12142,8 +12165,8 @@ return str;]]></Body>
 					<Id>1656176263765</Id>
 					<Name><![CDATA[window3d]]></Name>
 					<X>0</X><Y>450</Y>
-					<Width>750</Width>
-					<Height>370</Height>
+					<Width>910</Width>
+					<Height>570</Height>
 					<MakeDefaultViewArea>true</MakeDefaultViewArea>
 					<Label><X>0</X><Y>-10</Y></Label>
 					<ShowLabel>false</ShowLabel>
