@@ -13197,28 +13197,58 @@ requestPending = false;
 					</Points>
 					<IconOffset>20.0</IconOffset>
 					<Properties Source="1682583130188" Target="1655918031397" Trigger="condition">
-						<Action><![CDATA[moving = true;
+						<Action><![CDATA[
+moving = true;
 driveStartTime = time();
+
 lastNode = currentNode;
+
+// Calculate the next movement positions
 nextPathEndPoint();
+
+// Validate calculated positions
+if (nodePos == null || decPos == null)
+{
+    throw new IllegalStateException(
+        "AGV ERROR: Invalid movement positions. " +
+        "currentNode=" + currentNode +
+        ", nextNode=" + nextNode +
+        ", nodePos=" + nodePos +
+        ", decPos=" + decPos
+    );
+}
+
 requestPending = false;
 
-if(targetNode == nextNode)
-	sendArrival(true);
-else if(((PointNode)nextNode).getRadius() != 10)
-	sendArrival(false);
-	
-main.controller.addReward(main.RL_reward_reduce, this, true);
-if(targetNode == currentNode)
-	requestDispatch();
+if (targetNode == nextNode)
+{
+    sendArrival(true);
+}
+else if (((PointNode) nextNode).getRadius() != 10)
+{
+    sendArrival(false);
+}
+
+main.controller.addReward(
+    main.RL_reward_reduce,
+    this,
+    true
+);
+
+if (targetNode == currentNode)
+{
+    requestDispatch();
+}
 
 stop();
 moveTo(decPos);
-if(contents().size() == 1)
+
+if (contents().size() == 1)
 {
-	contents().get(0).stop();
-	contents().get(0).moveTo(decPos);
-}]]></Action>
+    contents().get(0).stop();
+    contents().get(0).moveTo(decPos);
+}
+]]></Action>
 						<Timeout Class="CodeUnitValue">
 							<Code><![CDATA[0.05]]></Code>
 							<Unit Class="TimeUnits"><![CDATA[SECOND]]></Unit>
@@ -13324,16 +13354,39 @@ blockTime = time();]]></Action>
 					</Points>
 					<IconOffset>20.0</IconOffset>
 					<Properties Source="1656068104988" Target="1655918031397" Trigger="condition">
-						<Action><![CDATA[main.controller.agvHandleBlock(this, null);
-main.controller.getStatistic("_blocksec_agv" + Integer.toString(index), time()-blockTime, false);
+						<Action><![CDATA[
+if (decPos == null || nodePos == null)
+{
+    throw new IllegalStateException(
+        "AGV ERROR: Cannot resume movement after block. " +
+        "currentNode=" + currentNode +
+        ", nextNode=" + nextNode +
+        ", nodePos=" + nodePos +
+        ", decPos=" + decPos
+    );
+}
 
+// Notify controller that AGV is unblocked
+main.controller.agvHandleBlock(this, null);
+
+// Record blocking duration
+main.controller.getStatistic(
+    "_blocksec_agv" + Integer.toString(index),
+    time() - blockTime,
+    false
+);
+
+// Resume AGV movement
 stop();
 moveTo(decPos);
-if(contents().size() == 1)
+
+// Resume carried agent movement
+if (contents().size() == 1)
 {
-	contents().get(0).stop();
-	contents().get(0).moveTo(decPos);
-}]]></Action>
+    contents().get(0).stop();
+    contents().get(0).moveTo(decPos);
+}
+]]></Action>
 						<Timeout Class="CodeUnitValue">
 							<Code><![CDATA[1]]></Code>
 							<Unit Class="TimeUnits"><![CDATA[SECOND]]></Unit>
@@ -13445,26 +13498,106 @@ if(contents().size() == 1)
 					</Points>
 					<IconOffset>20.0</IconOffset>
 					<Properties Source="1655918031397" Target="1682057901563" Trigger="timeout">
-						<Action><![CDATA[if(!hasJumped && ((PointNode)nextNode).getRadius() != 5 && distanceTo(nodePos, main.unit)<0.11)
+						<Action><![CDATA[
+try
 {
-	stop();
-	setXYZ((Point)nodePos);
-	setRotation(nodePos.rotation);
-	if(contents().size() == 1)
-	{
-		contents().get(0).stop();
-		contents().get(0).setXYZ((Point)nodePos);
-		contents().get(0).setRotation(nodePos.rotation);
-	}
-	hasJumped = true;
-	stop();
-	moveTo(decPos);
-	if(contents().size() == 1)
-	{
-		contents().get(0).stop();
-		contents().get(0).moveTo(decPos);
-	}
-}]]></Action>
+    if (
+        !hasJumped
+        && nextNode instanceof PointNode
+        && nodePos != null
+        && decPos != null
+        && ((PointNode) nextNode).getRadius() != 5
+        && distanceTo(nodePos, main.unit) < 0.11
+    )
+    {
+        stop();
+        setXYZ((Point) nodePos);
+        setRotation(nodePos.rotation);
+
+        if (contents().size() == 1)
+        {
+            contents().get(0).stop();
+            contents().get(0).setXYZ((Point) nodePos);
+            contents().get(0).setRotation(nodePos.rotation);
+        }
+
+        hasJumped = true;
+        stop();
+        moveTo(decPos);
+
+        if (contents().size() == 1)
+        {
+            contents().get(0).stop();
+            contents().get(0).moveTo(decPos);
+        }
+    }
+}
+catch (RuntimeException ex)
+{
+    // Check AnyLogic's real movement state
+    boolean engineMoving = isMoving();
+
+    String targetInfo = "not_moving";
+
+    if (engineMoving)
+    {
+        try
+        {
+            targetInfo =
+                getTargetX() + "," + getTargetY();
+        }
+        catch (RuntimeException targetEx)
+        {
+            targetInfo = "target_read_failed";
+        }
+    }
+
+    // Check the actual path direction
+    Path debugPath = null;
+
+    if (currentNode != null && nextNode != null)
+    {
+        for (int i = 0;
+             i < currentNode.getConnectionsCount();
+             i++)
+        {
+            if (
+                currentNode.getConnection(i)
+                    .getOtherNode(currentNode) == nextNode
+            )
+            {
+                debugPath =
+                    (Path) currentNode.getConnection(i);
+                break;
+            }
+        }
+    }
+
+    String pathInfo = "path_not_found";
+
+    if (debugPath != null)
+    {
+        pathInfo =
+            "length=" + debugPath.length(main.unit) +
+            ", bidirectional=" + debugPath.isBidirectional() +
+            ", forward=" +
+            (debugPath.getSource() == currentNode);
+    }
+
+    throw new IllegalStateException(
+        "AGV_MOVEMENT_DEBUG: " +
+        "index=" + index +
+        ", time=" + time() +
+        ", movingFlag=" + moving +
+        ", engineIsMoving=" + engineMoving +
+        ", target=" + targetInfo +
+        ", nodePos=" + nodePos +
+        ", decPos=" + decPos +
+        ", path=" + pathInfo,
+        ex
+    );
+}
+]]></Action>
 						<Timeout Class="CodeUnitValue">
 							<Code><![CDATA[0.1]]></Code>
 							<Unit Class="TimeUnits"><![CDATA[SECOND]]></Unit>
@@ -14394,38 +14527,129 @@ sendInvalid();]]></Body>
 					<PublicFlag>false</PublicFlag>
 					<PresentationFlag>true</PresentationFlag>
 					<ShowLabel>true</ShowLabel>
-					<Body><![CDATA[int i = 0;
-for(i = 0; i<currentNode.getConnectionsCount(); i++)
-	if(currentNode.getConnection(i).getOtherNode(currentNode) == nextNode)
-		break;
-Path path = (Path)currentNode.getConnection(i);
+					<Body><![CDATA[
+if (currentNode == null || nextNode == null || lastNode == null)
+{
+    throw new IllegalStateException(
+        "AGV ERROR: Navigation node is null. " +
+        "currentNode=" + currentNode +
+        ", nextNode=" + nextNode +
+        ", lastNode=" + lastNode
+    );
+}
 
+if (!(currentNode instanceof PointNode)
+        || !(nextNode instanceof PointNode)
+        || !(lastNode instanceof PointNode))
+{
+    throw new IllegalStateException(
+        "AGV ERROR: Invalid node type."
+    );
+}
 
-Point toMoveNode = ((PointNode)lastNode).getXYZ();
-Point toMoveDec = ((PointNode)nextNode).getXYZ();
+int i = 0;
+
+for (i = 0; i < currentNode.getConnectionsCount(); i++)
+{
+    if (currentNode.getConnection(i).getOtherNode(currentNode) == nextNode)
+        break;
+}
+
+if (i >= currentNode.getConnectionsCount())
+{
+    throw new IllegalStateException(
+        "AGV ERROR: No connection between nodes."
+    );
+}
+
+if (!(currentNode.getConnection(i) instanceof Path))
+{
+    throw new IllegalStateException(
+        "AGV ERROR: Connection is not a Path."
+    );
+}
+
+Path path = (Path) currentNode.getConnection(i);
+
+double pathLen = path.length(main.unit);
+
+if (!Double.isFinite(pathLen) || pathLen <= 0)
+{
+    throw new IllegalStateException(
+        "AGV ERROR: Invalid path length=" + pathLen
+    );
+}
+
+// FIX: Prevent decision point from collapsing
+// onto the start of a short path.
+double safeDecisionOffset =
+    Math.min(decisionOffset, pathLen / 2.0);
+
+if (safeDecisionOffset <= 0)
+{
+    throw new IllegalStateException(
+        "AGV ERROR: Invalid decisionOffset."
+    );
+}
+
+// Keep the node-entry point before the decision point.
+double entryOffset =
+    Math.min(0.01, safeDecisionOffset / 2.0);
+
+Point toMoveNode = ((PointNode) lastNode).getXYZ();
+Point toMoveDec = ((PointNode) nextNode).getXYZ();
+
 double rotation = 0;
 
-if(currentNode == path.getSource())
+if (currentNode == path.getSource())
 {
-	rotation = path.getEndPosition().rotation;
-	if(((PointNode)nextNode).getRadius() != 5)
-	{
-		toMoveDec = path.getPointAtOffset(max(path.length(main.unit) - decisionOffset,0), main.unit, null);
-		toMoveNode = path.getPointAtOffset(0.01, main.unit, null);
-	}
+    rotation = path.getEndPosition().rotation;
+
+    if (((PointNode) nextNode).getRadius() != 5)
+    {
+        toMoveDec = path.getPointAtOffset(
+            pathLen - safeDecisionOffset,
+            main.unit,
+            null
+        );
+
+        toMoveNode = path.getPointAtOffset(
+            entryOffset,
+            main.unit,
+            null
+        );
+    }
 }
 else
 {
-	rotation = path.getStartPosition().rotation + PI;
-	if(((PointNode)nextNode).getRadius() != 5)
-	{
-		toMoveDec = path.getPointAtOffset(min(decisionOffset, path.length(main.unit)), main.unit, null);
-		toMoveNode = path.getPointAtOffset(path.length(main.unit) - 0.01, main.unit, null);
-	}
+    rotation = path.getStartPosition().rotation + PI;
+
+    if (((PointNode) nextNode).getRadius() != 5)
+    {
+        toMoveDec = path.getPointAtOffset(
+            safeDecisionOffset,
+            main.unit,
+            null
+        );
+
+        toMoveNode = path.getPointAtOffset(
+            pathLen - entryOffset,
+            main.unit,
+            null
+        );
+    }
+}
+
+if (toMoveNode == null || toMoveDec == null)
+{
+    throw new IllegalStateException(
+        "AGV ERROR: Calculated position is null."
+    );
 }
 
 decPos = new Position(toMoveDec, rotation, 0);
-nodePos = new Position(toMoveNode, rotation, 0);]]></Body>
+nodePos = new Position(toMoveNode, rotation, 0);
+]]></Body>
 				</Function>
 				<Function AccessType="default" StaticFunction="false">
 					<ReturnModificator>VOID</ReturnModificator>

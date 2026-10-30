@@ -245,7 +245,7 @@ else
 					<Properties SaveInSnapshot="true" Constant="false" AccessType="public" StaticVariable="false">
 						<Type><![CDATA[String]]></Type>        
 						<InitialValue Class="CodeValue">
-							<Code><![CDATA["matrix_mappo_v8_15agv"]]></Code>
+							<Code><![CDATA["matrix_mappo_v8_20agv"]]></Code>
 						</InitialValue>
 					</Properties>
 				</Variable>

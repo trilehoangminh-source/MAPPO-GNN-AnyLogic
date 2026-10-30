@@ -37,6 +37,7 @@ SIM_CONFIG = dict(
     reward_invalid=-0.1,
     reward_duration=-0.5,
     reward_pass=0.2,
+    reward_part_completed=1.0,
     block_timeout=60,
     station_separate=False,
     reward_accepted_in_station=0.5,
