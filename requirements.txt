@@ -1,30 +1,31 @@
-# V15 minimal: GATv2 + LinFE + event-driven MAPPO + AnyLogic.
-# Target: Python 3.11 (Windows).
-#
-# These are compatible version ranges inferred from the V15 source imports,
-# NOT exact package versions from the training machine's .venv311.
-# Do not reinstall/upgrade a working training environment mid-run.
-#
-# Install a CUDA-compatible PyTorch build using the official PyTorch instructions
-# before installing these requirements on a NEW machine.
-# Preserve the original working environment separately for checkpoint reproduction.
-
-# AnyLogic bridge (imports: alpyne.sim, alpyne.constants)
-anylogic-alpyne>=1.2.0,<1.3
-
-# Simulation environment / multi-agent API
-gymnasium>=0.29,<2
-pettingzoo>=1.24,<2
-
-# Neural networks, PPO and numerical operations
-numpy>=1.24,<2
-torch>=2.0,<3
-
-# Environment rendering and optional training plots
-Pillow>=9.5
-matplotlib>=3.7,<4
-
-# The V15 runner does NOT require legacy gym==0.21, Ray/RLlib,
-# stable-baselines3, torch-geometric or torch-scatter.
-# Historical Tobias policy modules are retained as reference, not imported
-# by the V15 train/evaluate entry points.
+anylogic-alpyne==1.2.1
+certifi==2026.7.22
+charset-normalizer==3.5.2
+cloudpickle==3.1.2
+contourpy==1.3.3
+cycler==0.12.1
+Farama-Notifications==0.0.6
+filelock==4.2.0
+fonttools==4.67.0
+fsspec==2026.9.0
+gymnasium==1.4.0
+idna==3.20
+Jinja2==3.1.6
+kiwisolver==1.5.1
+MarkupSafe==3.0.4
+matplotlib==3.11.2
+mpmath==1.3.0
+networkx==3.6.1
+numpy==2.4.6
+packaging==26.3
+pettingzoo==1.27.0
+pillow==13.0.0
+psutil==7.2.2
+pyparsing==3.3.3
+python-dateutil==2.9.0.post0
+requests==2.34.2
+six==1.17.0
+sympy==1.14.0
+torch==2.14.1+cu130
+typing_extensions==4.16.0
+urllib3==2.8.0
