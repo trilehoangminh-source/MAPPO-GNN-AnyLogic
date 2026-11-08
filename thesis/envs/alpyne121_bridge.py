@@ -150,6 +150,9 @@ class AlpyneClient:
             port=int(port),
             auto_lock=True,
             auto_finish=False,
+            java_log_level="ERROR",
+            py_log_level="ERROR",
+            log_id="v11debug",
             max_server_await_time=int(os.environ.get('MAPPO_SERVER_TIMEOUT', '180')),
             lock_defaults={'timeout': int(os.environ.get('MAPPO_LOCK_TIMEOUT', '180'))},
         )
