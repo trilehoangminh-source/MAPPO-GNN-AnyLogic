@@ -79,10 +79,19 @@ def parse_args(argv=None):
     p.add_argument('--dry-run',action='store_true')
     p.add_argument('--init-only',action='store_true')
     p.add_argument('--resume',action='store_true')
+    p.add_argument('--joint-routing-ep',type=int,default=None,help='For fresh joint8 only: routing8 snapshot episode')
+    p.add_argument('--joint-dispatch-ep',type=int,default=None,help='For fresh joint8 only: dispatch8 snapshot episode')
     a=p.parse_args(argv)
     if a.max_episodes<0 or a.max_minibatch<1 or a.cpu_threads<1 or a.snapshot_every<1 or not 1<=a.port<=65535:
         p.error('Invalid episode/minibatch/threads/snapshot/port')
     if a.resume and a.init_only:p.error('--resume and --init-only are mutually exclusive')
+    chosen=(a.joint_routing_ep is not None,a.joint_dispatch_ep is not None)
+    if chosen[0]!=chosen[1]:p.error('Provide BOTH --joint-routing-ep and --joint-dispatch-ep')
+    if any(chosen):
+        if a.phase!='joint8':p.error('Role-wise episode selection is supported for joint8 only')
+        if a.resume:p.error('On --resume omit --joint-routing-ep and --joint-dispatch-ep')
+        if a.joint_routing_ep<1 or a.joint_dispatch_ep<1:
+            p.error('Source snapshot episode must be positive')
     return a
 
 
@@ -172,16 +181,80 @@ def _frozen_role_hashes(model, trained_roles):
     return output
 
 
+def _joint_snapshot_sources(a, expected, run_root):
+    """Validate TWO committed source snapshots before touching joint8 outputs.
+
+    This is opt-in. Default staged inheritance and downstream joint12+ phases
+    remain untouched. Snapshots are always read-only.
+    """
+    if a.joint_routing_ep is None:
+        return None
+    result={}
+    for phase,episode in (('routing8',a.joint_routing_ep),
+                          ('dispatch8',a.joint_dispatch_ep)):
+        folder=Path(run_root)/phase
+        meta=_read(folder/'experiment.json')
+        if meta.get('phase')!=phase or int(meta.get('fleet_size',-1))!=8:
+            raise RuntimeError('Joint8 source phase/fleet mismatch: '+phase)
+        _verify_lineage(meta,expected)
+        stage_state=_read(folder/'state.json')
+        if int(stage_state.get('last_episode',0))<episode:
+            raise RuntimeError(f'{phase} has not completed EP{episode}')
+        snapshot=(folder/f'snapshot_ep_{episode:04d}.pt').resolve()
+        if not snapshot.is_file():
+            raise FileNotFoundError('Missing joint8 source snapshot: '+str(snapshot))
+        registered={str(Path(p).resolve()) for p in stage_state.get('snapshots',[])}
+        if str(snapshot) not in registered:
+            raise RuntimeError('Snapshot is not registered in source state.json: '+str(snapshot))
+        result[phase]=dict(episode=episode,checkpoint=str(snapshot),
+                           checkpoint_sha256=_digest(snapshot))
+    return result
+
+
+def _load_joint_roles(model, sources):
+    """Transfer each role's actor, critic, ValueNorm and Adam state intact.
+
+    routing8 EP200 -> routing; dispatch8 EP100 -> front/rear.
+    Fails closed on incompatible checkpoints, without touching source files.
+    """
+    import torch
+    loaded={}
+    for phase,entry in sources.items():
+        checkpoint=Path(entry['checkpoint'])
+        if _digest(checkpoint)!=entry['checkpoint_sha256']:
+            raise RuntimeError('Joint8 source checkpoint changed: '+str(checkpoint))
+        loaded[phase]=torch.load(str(checkpoint),map_location='cpu',weights_only=True)
+        if set(loaded[phase].get('roles',{}))!=set(model.roles):
+            raise RuntimeError('Unexpected role set in '+phase+' source')
+    if loaded['routing8'].get('config')!=loaded['dispatch8'].get('config'):
+        raise RuntimeError('Routing8 and Dispatch8 PPO configs differ')
+    mapping={'routing':'routing8','dispatch_front':'dispatch8','dispatch_rear':'dispatch8'}
+    for role_name,phase in mapping.items():
+        saved=loaded[phase]['roles'][role_name]
+        net=model.roles[role_name]
+        net.actor.load_state_dict(saved['actor'],strict=True)
+        net.critic.load_state_dict(saved['critic'],strict=True)
+        net.actor_optimizer.load_state_dict(saved['actor_optimizer'])
+        net.critic_optimizer.load_state_dict(saved['critic_optimizer'])
+        net.valuenorm.load_state_dict(saved['valuenorm'])
+    print('[V15 JOINT8 ROLE TRANSFER] routing from routing8 EP',
+          sources['routing8']['episode'],'dispatch front/rear from dispatch8 EP',
+          sources['dispatch8']['episode'],flush=True)
+
+
 def run(argv=None):
     a=parse_args(argv)
     cfg,blueprint,simulator,fingerprints,out,index=preflight(a)
     expected=_meta(a,cfg,blueprint,simulator,fingerprints,index)
+    joint_sources=_joint_snapshot_sources(a,expected,out.parent)
     if a.dry_run:
         print('[V15 DRY RUN OK] phase=',a.phase,'fleet=',PHASES[a.phase][0],
               'roles=',PHASES[a.phase][1],'sim=3600 seconds',flush=True)
         print('[V15 DRY RUN OK] GAT Dijkstra guidance=OFF; dispatch8 native Tobias CollisionFreeRouting=ON; stop mask=original')
         print('[V15 DRY RUN OK] AnyLogic ZIP=',simulator)
         print('[V15 DRY RUN OK] blueprint=',blueprint)
+        if joint_sources:
+            print('[V15 DRY RUN OK] joint8 role-wise sources:',joint_sources,flush=True)
         print('[V15 DRY RUN OK] no environment launched and no output modified')
         return
     if a.resume:
@@ -207,6 +280,8 @@ def run(argv=None):
             if int(state_previous['last_episode'])<1:
                 raise RuntimeError('Previous phase must complete at least one episode')
             ck=_checkpoint(state_previous,prev)
+        if joint_sources:
+            ck=None  # All THREE roles will load from their requested snapshots.
         state=dict(last_episode=0,checkpoint=None,checkpoint_sha256=None,
                    run_seconds=0.0,snapshots=[],source_checkpoint=str(ck) if ck else None)
     import numpy as np
@@ -229,6 +304,8 @@ def run(argv=None):
         env,model,graph,arch=build_v15(cfg,model_path=simulator,
             fleet_size=PHASES[a.phase][0],port=a.port,device=a.device,seed=a.seed,
             max_events=a.max_events,sim_seconds=3600,checkpoint=ck,phase=a.phase)
+        if joint_sources:
+            _load_joint_roles(model,joint_sources)
         if not a.resume:
             out.mkdir(parents=True,exist_ok=True)
             shutil.copy2(blueprint,out/'run_config_blueprint.json')
@@ -239,6 +316,9 @@ def run(argv=None):
             expected['architecture_actual']=arch
             expected['source_checkpoint']=str(ck) if ck else None
             expected['source_checkpoint_sha256']=_digest(ck) if ck else None
+            if joint_sources:
+                expected['joint_role_sources']=joint_sources
+                state['joint_role_sources']=joint_sources
             _atomic_json(out/'experiment.json',expected)
             (out/'metrics.jsonl').touch(exist_ok=False)
             _atomic_json(out/'state.json',state)
