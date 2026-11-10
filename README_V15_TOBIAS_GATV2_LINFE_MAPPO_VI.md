@@ -1,5 +1,13 @@
 # V15 — Tobias-style GATv2 + LinFE Dispatch + Centralized MAPPO
 
+> **Cập nhật 10/11/2026 — trở về Dispatch mask gốc Tobias.**
+> V15 sử dụng `MAPPO_DISPATCH_MASK_MODE=legacy`, tức tập hợp các lựa chọn
+> GEO + operation phù hợp + buffer của `MultiDispAgent` gốc.
+> Không còn áp `operation_first` vào thí nghiệm này.
+> Branch trước khi sửa: `backup/v15-pre-tobias-dispatch-mask-20261110`.
+> Mặc định lưu run mới vào `V15_TOBIAS_ORIGINAL_DISPATCH_MASK_3600S`
+> để không đè dữ liệu V15 cũ.
+
 ## 1. Mục tiêu và phạm vi
 
 Phiên bản V15 **train mới từ Episode 0**, mỗi episode **3.600 giây mô phỏng**. Không đọc bất kỳ checkpoint V14 nào và không ghi đè thư mục `mappo_runs` của V14.
@@ -125,7 +133,7 @@ Sau đó tăng `--max-episodes` và thêm `--resume` để tiếp tục phase `d
 
 ## 5. Resume và checkpoint
 
-- Mỗi phase có thư mục riêng: `mappo_runs/V15_TOBIAS_GATV2_LINFE_MAPPO_NATIVE_ROUTING_3600S/<phase>/`.
+- Mỗi phase có thư mục riêng: `mappo_runs/V15_TOBIAS_ORIGINAL_DISPATCH_MASK_3600S/<phase>/`.
 - Lưu `initial_ep_0000.pt`, `rolling_slot_0.pt`, `rolling_slot_1.pt`, `state.json`, `experiment.json`, `metrics.jsonl`, và snapshots mỗi 10 EP.
 - **Chỉ ghi nhận episode đã commit** trong `state.json`. `--resume` kiểm tra SHA-256 checkpoint, số episode metrics và hash của bộ code V15/MAPPO gốc trước khi nạp.
 - Khi `Ctrl+C`, runner dừng an toàn tại mốc commit trước đó; nên không thay code/blueprint/mô hình trong khi một run đang tiến hành.
@@ -143,7 +151,7 @@ Khi hoàn thành phase `joint20`, chạy:
 Dừng giữa chừng thì thêm `--resume`. File JSONL có số liệu từng seed và không làm cập nhật PPO. Đọc tổng hợp:
 
 ```powershell
-.\.venv311\Scripts\python.exe -u .\scripts\summarize_v15_heldout.py '.\mappo_runs\V15_TOBIAS_GATV2_LINFE_MAPPO_NATIVE_ROUTING_3600S\joint20\heldout_joint20_10seeds_3600s.jsonl'
+.\.venv311\Scripts\python.exe -u .\scripts\summarize_v15_heldout.py '.\mappo_runs\V15_TOBIAS_ORIGINAL_DISPATCH_MASK_3600S\joint20\heldout_joint20_10seeds_3600s.jsonl'
 ```
 
 Muốn so sánh khoa học với V14 (EP130 Stop/Swing) và Tobias (Figure 8), phải xác nhận các bên **cùng điều kiện sản xuất, logic Block/LiveLock, 20 AGV, 3600s và giao thức greedy/seed**. Tobias và MAPPO khác framework/thuật toán nên **không thể khẳng định hơn kém chỉ qua một episode**.
@@ -160,7 +168,37 @@ Muốn so sánh khoa học với V14 (EP130 Stop/Swing) và Tobias (Figure 8), p
 
 Đã chạy 11/11 unit tests offline với PyTorch, kiểm tra output shape, gradient GAT, action mask, reward config và lọc role; đã chạy giả lập CLI `--dry-run` với blueprint mẫu và compile toàn bộ file Python. **Chưa thể chạy AnyLogic 3.600s trong môi trường phát triển này** và chưa kiểm tra sự tương thích với mô hình ZIP thực tế trên máy ông. Trước khi train dài, phải hoàn thành EP1 của `routing8`, kiểm tra `end_reason`, `selected_mask_violations`, role updates và số liệu JobDone/Block/LiveLock.
 
-## 9. V15 sửa đúng Conventional Routing (bản này)
+## 9. Train lại joint16 từ EP0 (so sánh cùng trọng số khởi tạo)
+
+Thí nghiệm nên lấy `initial_ep_0000.pt` của `joint16` trước khi sửa làm nguồn,
+vì file này lưu cùng actor, critic, ValueNorm và Adam ban đầu. Lần chạy mới
+thay **chỉ Dispatch mask**, không tiếp tục từ EP80/EP200.
+
+```powershell
+# Chạy từ thư mục gốc dự án, sau khi cập nhật branch refactor/v15-minimal.
+$old = ".\mappo_runs\V15_TOBIAS_GATV2_LINFE_MAPPO_NATIVE_ROUTING_3600S\joint16\initial_ep_0000.pt"
+.\.venv311\Scripts\python.exe -u .\scripts\train_v15_tobias_staged.py --phase joint16 --init-checkpoint $old --max-episodes 200 --dry-run
+.\.venv311\Scripts\python.exe -u .\scripts\train_v15_tobias_staged.py --phase joint16 --init-checkpoint $old --max-episodes 200
+```
+
+Nếu dừng rồi muốn tiếp tục run mới:
+
+```powershell
+.\.venv311\Scripts\python.exe -u .\scripts\train_v15_tobias_staged.py --phase joint16 --max-episodes 200 --resume
+```
+
+Đánh giá cùng 10 seed sau khi hoàn thành:
+
+```powershell
+.\.venv311\Scripts\python.exe -u .\scripts\evaluate_v15_tobias_staged.py --phase joint16 --seeds 10 --first-seed 900001 --port 51881
+```
+
+`--init-checkpoint` chỉ dùng cho **run joint16 mới**, không dùng cùng
+`--resume`. `--dry-run` kiểm tra đường dẫn và hash, không khởi động
+AnyLogic. Trước khi train dài, nên thử EP1 và đánh giá log.
+Đây là EP0 của phase `joint16`, **không phải từ trọng số random của toàn bộ curriculum**.
+
+## 10. V15 sửa đúng Conventional Routing (bản này)
 
 Đây là **V15 revised/V2**, không phải ZIP V15 cũ. Thư mục run mặc định đã đổi tên để tránh trộn checkpoint do trước đó `dispatch8` dùng bộ định tuyến hình học. Khi đổi từ bản cũ sang bản này, không dùng `--resume` vào run V15 cũ. **Phải bắt đầu lại một run V15-V2 từ EP0** nếu trước đó ông đã init/train bản cũ.
 

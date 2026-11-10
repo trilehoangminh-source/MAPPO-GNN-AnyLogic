@@ -23,7 +23,7 @@ def main(argv=None):
     p.add_argument('--phase',choices=PHASE_ORDER,default='joint20')
     p.add_argument('--blueprint',type=Path,default=None)
     p.add_argument('--model',type=Path,default=None)
-    p.add_argument('--output-root',type=Path,default=ROOT/'mappo_runs'/'V15_TOBIAS_GATV2_LINFE_MAPPO_NATIVE_ROUTING_3600S')
+    p.add_argument('--output-root',type=Path,default=ROOT/'mappo_runs'/'V15_TOBIAS_ORIGINAL_DISPATCH_MASK_3600S')
     p.add_argument('--device',default='cuda:0')
     p.add_argument('--port',type=int,default=51881)
     p.add_argument('--seeds',type=int,default=10)
@@ -37,7 +37,7 @@ def main(argv=None):
     meta=_read(stage_dir/'experiment.json')
     state=_read(stage_dir/'state.json')
     checkpoint=_checkpoint(state,stage_dir)
-    from v15_tobias_build import build_v15, TOBIAS_JOINT_REWARDS
+    from v15_tobias_build import build_v15, TOBIAS_JOINT_REWARDS, TOBIAS_DISPATCH_MASK_MODE
     blueprint=Path(args.blueprint or meta['blueprint_file']).resolve()
     cfg=_read(blueprint)
     if _digest(blueprint)!=meta['blueprint_sha256']:
@@ -83,7 +83,7 @@ def main(argv=None):
     from thesis.mappo.gnn_routing_B3_v121 import GraphSpec
     if args.device.startswith('cuda') and not torch.cuda.is_available():
         raise RuntimeError('CUDA not available')
-    os.environ['MAPPO_DISPATCH_MASK_MODE']='operation_first'
+    os.environ['MAPPO_DISPATCH_MASK_MODE']=TOBIAS_DISPATCH_MASK_MODE
     os.environ['MAPPO_MAX_MINIBATCH']=str(meta['max_minibatch'])
     torch.set_num_threads(int(meta['cpu_threads']))
     random.seed(meta['base_seed']);np.random.seed(meta['base_seed']);torch.manual_seed(meta['base_seed'])
@@ -106,7 +106,8 @@ def main(argv=None):
                 raise RuntimeError('Graph fingerprint changed')
             row=dict(phase=args.phase,seed=seed,checkpoint_sha256=state['checkpoint_sha256'],
                      episode=int(state['last_episode']),fleet=PHASES[args.phase][0],
-                     sim_seconds=3600,greedy=True,ppo_updates=0,environment=environment)
+                     sim_seconds=3600,greedy=True,ppo_updates=0,
+                     dispatch_mask_mode=TOBIAS_DISPATCH_MASK_MODE,environment=environment)
             with result.open('a',encoding='utf8') as f:
                 f.write(json.dumps(row,ensure_ascii=False,default=str)+'\n')
                 f.flush();os.fsync(f.fileno())

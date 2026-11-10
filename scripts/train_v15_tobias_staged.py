@@ -25,9 +25,9 @@ ROOT=Path(__file__).resolve().parents[1]
 sys.path[:0]=[str(ROOT),str(ROOT/'scripts')]
 from v15_staged_collector import PHASES, StagePolicyAdapter, trained_trajectories
 
-VERSION='V15_TOBIAS_ARCH_STAGED_NATIVE_ROUTER_MAPPO_V2'
+VERSION='V15_TOBIAS_ARCH_STAGED_NATIVE_ROUTER_MAPPO_V3_TOBIAS_DISPATCH_MASK'
 PHASE_ORDER=tuple(PHASES)
-DEFAULT_OUT=ROOT/'mappo_runs'/'V15_TOBIAS_GATV2_LINFE_MAPPO_NATIVE_ROUTING_3600S'
+DEFAULT_OUT=ROOT/'mappo_runs'/'V15_TOBIAS_ORIGINAL_DISPATCH_MASK_3600S'
 V15_MODEL_MODULE=ROOT/'thesis'/'mappo'/'v15_tobias_arch.py'
 V15_BUILD_MODULE=ROOT/'scripts'/'v15_tobias_build.py'
 V15_STAGE_MODULE=ROOT/'scripts'/'v15_staged_collector.py'
@@ -81,13 +81,20 @@ def parse_args(argv=None):
     p.add_argument('--resume',action='store_true')
     p.add_argument('--joint-routing-ep',type=int,default=None,help='For fresh joint8 only: routing8 snapshot episode')
     p.add_argument('--joint-dispatch-ep',type=int,default=None,help='For fresh joint8 only: dispatch8 snapshot episode')
+    p.add_argument('--init-checkpoint',type=Path,default=None,
+                   help='For fresh joint16 EP0: old joint16/initial_ep_0000.pt (or compatible checkpoint)')
     a=p.parse_args(argv)
     if a.max_episodes<0 or a.max_minibatch<1 or a.cpu_threads<1 or a.snapshot_every<1 or not 1<=a.port<=65535:
         p.error('Invalid episode/minibatch/threads/snapshot/port')
     if a.resume and a.init_only:p.error('--resume and --init-only are mutually exclusive')
+    if a.init_checkpoint is not None:
+        if a.phase!='joint16':p.error('--init-checkpoint works only for joint16')
+        if a.resume:p.error('Do not combine --init-checkpoint and --resume')
+        if not a.init_checkpoint.is_file():p.error('Missing --init-checkpoint file')
     chosen=(a.joint_routing_ep is not None,a.joint_dispatch_ep is not None)
     if chosen[0]!=chosen[1]:p.error('Provide BOTH --joint-routing-ep and --joint-dispatch-ep')
     if any(chosen):
+        if a.init_checkpoint is not None:p.error('Cannot mix --init-checkpoint and joint8 role-wise sources')
         if a.phase!='joint8':p.error('Role-wise episode selection is supported for joint8 only')
         if a.resume:p.error('On --resume omit --joint-routing-ep and --joint-dispatch-ep')
         if a.joint_routing_ep<1 or a.joint_dispatch_ep<1:
@@ -153,7 +160,8 @@ def _meta(a,cfg,blueprint,model,fingerprints,phaseidx):
         reward_source='Tobias training_disp_rout.ipynb joint configuration',
         reward_part_completed='not overridden (commented in original notebook)',
         ppo_core='unchanged MAPPO + existing V7 stability optimizer',
-        phase_train_episode_index_starts_at=0)
+        phase_train_episode_index_starts_at=0,
+        dispatch_mask_mode='tobias_original_union')
 
 
 def _verify_lineage(old,current):
@@ -247,6 +255,10 @@ def run(argv=None):
     cfg,blueprint,simulator,fingerprints,out,index=preflight(a)
     expected=_meta(a,cfg,blueprint,simulator,fingerprints,index)
     joint_sources=_joint_snapshot_sources(a,expected,out.parent)
+    if a.init_checkpoint is not None:
+        src=Path(a.init_checkpoint).resolve()
+        expected['init_checkpoint']=str(src)
+        expected['init_checkpoint_sha256']=_digest(src)
     if a.dry_run:
         print('[V15 DRY RUN OK] phase=',a.phase,'fleet=',PHASES[a.phase][0],
               'roles=',PHASES[a.phase][1],'sim=3600 seconds',flush=True)
@@ -255,6 +267,10 @@ def run(argv=None):
         print('[V15 DRY RUN OK] blueprint=',blueprint)
         if joint_sources:
             print('[V15 DRY RUN OK] joint8 role-wise sources:',joint_sources,flush=True)
+        if a.init_checkpoint is not None:
+            print('[V15 DRY RUN OK] joint16 EP0 source:',expected['init_checkpoint'],
+                  'sha256=',expected['init_checkpoint_sha256'],flush=True)
+        print('[V15 DRY RUN OK] Dispatch mask=Tobias original union',flush=True)
         print('[V15 DRY RUN OK] no environment launched and no output modified')
         return
     if a.resume:
@@ -272,7 +288,9 @@ def run(argv=None):
         if out.exists() and any(out.iterdir()):
             raise FileExistsError('Output not empty: '+str(out)+'; use --resume')
         ck=None
-        if index>0:
+        if a.init_checkpoint is not None:
+            ck=Path(a.init_checkpoint).resolve()
+        elif index>0:
             prev=out.parent/PHASE_ORDER[index-1]
             previous=_read(prev/'experiment.json')
             _verify_lineage(previous,expected)
@@ -286,12 +304,12 @@ def run(argv=None):
                    run_seconds=0.0,snapshots=[],source_checkpoint=str(ck) if ck else None)
     import numpy as np
     import torch
-    from v15_tobias_build import build_v15
+    from v15_tobias_build import build_v15, TOBIAS_DISPATCH_MASK_MODE
     from thesis.mappo.collector_stop_ab import EventCollector
     from thesis.mappo.gnn_routing_B3_v121 import GraphSpec
     from thesis.mappo.mappo_stability_v7 import audit_rollout_roles
     os.environ['MAPPO_MAX_MINIBATCH']=str(a.max_minibatch)
-    os.environ['MAPPO_DISPATCH_MASK_MODE']='operation_first'
+    os.environ['MAPPO_DISPATCH_MASK_MODE']=TOBIAS_DISPATCH_MASK_MODE
     for name in ('OMP_NUM_THREADS','MKL_NUM_THREADS','OPENBLAS_NUM_THREADS'):
         os.environ[name]=str(a.cpu_threads)
     torch.set_num_threads(a.cpu_threads)
@@ -304,6 +322,11 @@ def run(argv=None):
         env,model,graph,arch=build_v15(cfg,model_path=simulator,
             fleet_size=PHASES[a.phase][0],port=a.port,device=a.device,seed=a.seed,
             max_events=a.max_events,sim_seconds=3600,checkpoint=ck,phase=a.phase)
+        if a.init_checkpoint is not None:
+            from dataclasses import asdict
+            loaded_cfg=torch.load(str(ck),map_location='cpu',weights_only=True).get('config')
+            if loaded_cfg!=asdict(model.cfg):
+                raise RuntimeError('Initial checkpoint MAPPOConfig differs from V15 configuration')
         if joint_sources:
             _load_joint_roles(model,joint_sources)
         if not a.resume:
@@ -368,6 +391,7 @@ def run(argv=None):
                      reward='Tobias joint notebook, no shaping',
                      gat_dijkstra_guidance=False,
                      native_conventional_routing=(a.phase=='dispatch8'),
+                     dispatch_mask_mode=TOBIAS_DISPATCH_MASK_MODE,
                      elapsed_real_seconds=elapsed)
             with (out/'metrics.jsonl').open('a',encoding='utf8') as f:
                 f.write(json.dumps(row,ensure_ascii=False,default=str)+'\n')

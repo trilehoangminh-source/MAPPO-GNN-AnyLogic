@@ -248,6 +248,25 @@ class TestV15(unittest.TestCase):
         self.assertNotIn('reward_part_completed',rewards)
         self.assertEqual(rewards['routing_interval'],2)
 
+    def test_tobias_original_dispatch_mask_selected(self):
+        self.assertEqual(builder.TOBIAS_DISPATCH_MASK_MODE,'legacy')
+        baseline=(ROOT/'thesis/envs/behaviors_v121.py').read_text()
+        self.assertIn('possible_stations.extend(self.part.proc_stat[proc])',baseline)
+        self.assertIn('possible_station_nodes = [self.part.stat_node[stat] for stat in possible_stations] + self.part.stat_node["puffer"]',baseline)
+        for p in ('scripts/train_v15_tobias_staged.py',
+                  'scripts/evaluate_v15_tobias_staged.py'):
+            content=(ROOT/p).read_text()
+            self.assertIn("os.environ['MAPPO_DISPATCH_MASK_MODE']=TOBIAS_DISPATCH_MASK_MODE",content)
+            self.assertNotIn("os.environ['MAPPO_DISPATCH_MASK_MODE']='operation_first'",content)
+
+    def test_joint16_checkpoint_option(self):
+        runner=load(Path('scripts/train_v15_tobias_staged.py'),'train_v15_tobias_staged')
+        cfg=runner.parse_args(['--phase','joint16','--max-episodes','1'])
+        self.assertIsNone(cfg.init_checkpoint)
+        self.assertIn('V15_TOBIAS_ORIGINAL_DISPATCH_MASK_3600S',str(cfg.output_root))
+        self.assertRaises(SystemExit,runner.parse_args,
+                          ['--phase','joint8','--init-checkpoint','missing.pt'])
+
     def test_source_does_not_import_guidance(self):
         content=(ROOT/'scripts/v15_tobias_build.py').read_text()
         self.assertNotIn('from thesis.mappo.routing_guidance_v121 import',content)

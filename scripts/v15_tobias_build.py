@@ -11,6 +11,10 @@ from __future__ import annotations
 from pathlib import Path
 import os
 
+# Native Tobias MultiDispAgent dispatch mask: union of eligible GEO and
+# processing stations plus ALL buffer nodes. Do not impose 'operation_first'.
+TOBIAS_DISPATCH_MASK_MODE = 'legacy'
+
 # Explicit joint-training reward config from Tobias's training_disp_rout.ipynb.
 # reward_part_completed is COMMENTED OUT there, so deliberately omitted here.
 TOBIAS_JOINT_REWARDS=dict(
@@ -45,7 +49,7 @@ def build_v15(cfg, *, model_path, fleet_size, port, device, seed, max_events,
     from thesis.mappo.gnn_routing_B3_v121 import GraphSpec
     from thesis.mappo.v15_tobias_arch import install_v15
 
-    os.environ['MAPPO_DISPATCH_MASK_MODE']='operation_first'
+    os.environ['MAPPO_DISPATCH_MASK_MODE']=TOBIAS_DISPATCH_MASK_MODE
     env=Matrix(model_path=str(Path(model_path).resolve()),
                startport=int(port),fleetsize=int(fleet_size),fleetsize_upper=None,
                max_fleetsize=20,sim_config=dict(TOBIAS_JOINT_REWARDS),
@@ -101,6 +105,7 @@ def build_v15(cfg, *, model_path, fleet_size, port, device, seed, max_events,
         return env,model,graph,dict(arch,station_slots=station_slots,global_feature_dim=feat,
                                     padded_agv_slots=20,sim_seconds=3600,guide_strength=0.,
                                     native_conventional_routing=use_conventional_routing,
+                                    dispatch_mask_mode=TOBIAS_DISPATCH_MASK_MODE,
                                     routing_controller=('tobias_collision_free_reservation'
                                                         if use_conventional_routing else 'unguided_gatv2'))
     except BaseException:
