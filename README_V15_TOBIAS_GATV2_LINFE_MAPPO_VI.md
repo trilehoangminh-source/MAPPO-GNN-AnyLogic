@@ -122,6 +122,10 @@ Sau đó tăng `--max-episodes` và thêm `--resume` để tiếp tục phase `d
 
 ### Bước E — Joint training, tăng số AGV
 
+**Lưu ý:** Các lệnh dưới đây dành cho người huấn luyện toàn bộ curriculum
+trong cùng một output root. Nếu chỉ train lại **joint16 EP0 từ checkpoint
+EP0 cũ**, hãy làm theo Mục 9, không chạy các phase trước.
+
 ```powershell
 .\.venv311\Scripts\python.exe -u .\scripts\train_v15_tobias_staged.py --phase joint8 --max-episodes 1
 .\.venv311\Scripts\python.exe -u .\scripts\train_v15_tobias_staged.py --phase joint12 --max-episodes 1
@@ -166,7 +170,13 @@ Muốn so sánh khoa học với V14 (EP130 Stop/Swing) và Tobias (Figure 8), p
 
 ## 8. Phạm vi kiểm thử trước khi giao
 
-Đã chạy 11/11 unit tests offline với PyTorch, kiểm tra output shape, gradient GAT, action mask, reward config và lọc role; đã chạy giả lập CLI `--dry-run` với blueprint mẫu và compile toàn bộ file Python. **Chưa thể chạy AnyLogic 3.600s trong môi trường phát triển này** và chưa kiểm tra sự tương thích với mô hình ZIP thực tế trên máy ông. Trước khi train dài, phải hoàn thành EP1 của `routing8`, kiểm tra `end_reason`, `selected_mask_violations`, role updates và số liệu JobDone/Block/LiveLock.
+Bộ test `tests/test_v15_tobias_staged_offline.py` đã được bổ sung các kiểm tra
+chế độ mask gốc Tobias và tùy chọn khởi tạo `joint16` từ checkpoint.
+**Bản cập nhật này chưa được chạy AnyLogic 3.600s hoặc xác minh đầy đủ
+bằng unit tests trên máy huấn luyện.** Trước khi train dài, hãy chạy
+`python -m unittest tests/test_v15_tobias_staged_offline.py`,
+`--dry-run` và thử EP1 của `joint16`, kiểm tra `end_reason`,
+`selected_mask_violations`, role updates, JobDone, Block, LiveLock.
 
 ## 9. Train lại joint16 từ EP0 (so sánh cùng trọng số khởi tạo)
 
