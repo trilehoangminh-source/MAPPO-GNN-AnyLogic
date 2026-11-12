@@ -7,6 +7,8 @@ byte-identical Torch-Geometric / RLlib weight-compatible copy. MAPPO itself is
 unchanged. Three role-specific centralized critics see unshuffled physical state.
 
 No Dijkstra, no dynamic traffic features, no extra reward shaping.
+Routing intentionally uses NO action masking (Tobias joint-routing experiment).
+Dispatch action masking remains enabled and unchanged.
 """
 from __future__ import annotations
 import math
@@ -17,6 +19,7 @@ from torch.distributions import Categorical
 
 def _masked(logits, action_mask):
     # Exact math of thesis/mappo/networks.py:masked_logits (local copy for testability).
+    # For Dispatch only; Routing uses the raw five logits without action masking.
     if logits.shape!=action_mask.shape:
         raise ValueError('Action/logit shape mismatch')
     valid=action_mask>.5
@@ -55,6 +58,7 @@ class TobiasLinearDispatchActor(nn.Module):
     With n_AGVs=20, all physical AGV slots stay padded to the same size while
     actual fleet count changes. No trainable candidate scoring or attention.
     """
+    uses_action_mask = True
     def __init__(self, obs_space, n_actions, embedding=32):
         super().__init__()
         agv_slots=int(obs_space['agvs'].shape[0])
@@ -166,6 +170,7 @@ class TobiasGraphRoutingActor(nn.Module):
     6-slot padded RLlib output used in Tobias's GNNRoutingNet.
     """
     action_dim=5
+    uses_action_mask = False
     def __init__(self, graph, embedding=32, heads=4, layers=2):
         super().__init__()
         if (embedding,heads,layers)!=(32,4,2):
@@ -235,7 +240,10 @@ class TobiasGraphRoutingActor(nn.Module):
         return self.action_net(torch.cat((neighbors,goal_embed),-1))
 
     def dist(self,obs):
-        return Categorical(logits=_masked(self.logits(obs),obs['action_mask']))
+        # Tobias routing experiment: no action mask on the network output.
+        # Illegal directions remain sampleable and are handled by AnyLogic.
+        # Keeping five logits preserves the V15 checkpoint architecture.
+        return Categorical(logits=self.logits(obs))
 
 
 class V15CentralCritic(nn.Module):

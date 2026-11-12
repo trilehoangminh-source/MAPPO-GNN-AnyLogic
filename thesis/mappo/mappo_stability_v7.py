@@ -119,9 +119,17 @@ def train_v7(self, trajectories):
         if not (torch.isfinite(old_logp).all() and torch.isfinite(advantage).all()
                 and np.isfinite(returns).all() and np.isfinite(old_values).all()):
             raise FloatingPointError('Nonfinite on-policy rollout fields')
-        legal = obs['action_mask'].gather(-1, actions.unsqueeze(-1)).squeeze(-1)
-        if bool((legal <= 0.5).any()):
-            raise RuntimeError('Rollout includes an action forbidden by stored action mask')
+        # Physical Routing policy uses 5 logits with NO action mask (Tobias
+        # joint experiment). The environment's mask is diagnostic for Routing,
+        # not a constraint on the sampling distribution. All other policies
+        # continue to enforce their masks exactly as before.
+        n_actions = int(obs['action_mask'].shape[-1])
+        if bool((actions < 0).any()) or bool((actions >= n_actions).any()):
+            raise RuntimeError(f'{role}: rollout contains out-of-range action')
+        if getattr(net.actor, 'uses_action_mask', True):
+            legal = obs['action_mask'].gather(-1, actions.unsqueeze(-1)).squeeze(-1)
+            if bool((legal <= 0.5).any()):
+                raise RuntimeError('Rollout includes an action forbidden by stored action mask')
 
         if cfg.normalize_advantage and len(advantage) > 1:
             advantage = (advantage - advantage.mean()) / advantage.std(unbiased=False).clamp(min=1e-6)
@@ -255,7 +263,12 @@ def audit_rollout_roles(model, trajectories, max_per_role: int = 32, atol: float
                 obs = step['observation']
                 act = int(step['action'])
                 mask = np.asarray(obs['action_mask']).reshape(-1)
-                if act < 0 or act >= len(mask) or mask[act] <= 0.5:
+                if act < 0 or act >= len(mask):
+                    raise RuntimeError(f'{role}: out-of-range historical action {act}')
+                # Routing with a no-mask actor is allowed to sample any of
+                # its 5 logits. Dispatch and masked Routing must be legal.
+                if (getattr(actor, 'uses_action_mask', True)
+                        and mask[act] <= 0.5):
                     raise RuntimeError(f'{role}: invalid historical action {act}')
                 input_t = algo.batchify(algo.as_actor(obs, model.device))
                 dist = actor.dist(input_t)

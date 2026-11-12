@@ -1,14 +1,18 @@
 """Event-driven Tobias/AnyLogic MAPPO collector with lifecycle-safe GAE segments.
 
-Paste this file over thesis/mappo/collector.py after making a backup.
+Reward for an action is consumed only upon the NEXT observation of that same
+(role, physical AGV). A change of PettingZoo alias due to an AGV leaving the
+system is a terminal boundary for that AGV's old trajectory.
 
-Policy sampling, action masks, reward matching, and public episode() API remain
-unchanged. Reward for an action is consumed only upon the NEXT observation of
-that same (role, physical AGV). A change of PettingZoo alias due to an AGV
-leaving the system is a terminal boundary for that AGV's old trajectory.
+Final actions of agents not called again before episode cutoff have no observed
+reward. They are reported/excluded, never assigned a fake 0.
 
-Final actions of agents that are not called again before episode cutoff have
-NO observed reward. They are reported and excluded, never assigned a fake 0.
+V15 routing-no-mask experiment:
+- Routing's GATv2 samples from all five logits, without applying action_mask.
+- We still retain the original mask for diagnostics and STOP-rate metrics.
+- A routing direction missing from the original mask is recorded, not rejected
+  by the collector. AnyLogic is responsible for processing that direction.
+- Dispatch Front/Rear still enforce their original action mask.
 """
 from __future__ import annotations
 
@@ -31,10 +35,10 @@ class EventCollector:
         if len(mask) < n:
             raise ValueError(f'{role}: mask has {len(mask)} entries; expected {n}')
         mask = mask[:5] if role == 'routing' else mask[:n]
-        # B experiment: restrict Stop (action 0) ONLY when some real
-        # movement action (1..4) was allowed by Tobias's original mask.
-        # IMPORTANT: change mask BEFORE model.act(), and save it with the
-        # transition; PPO update must use the same sampling distribution.
+        # Mask is still recorded on Routing observations for diagnostics, but
+        # TobiasGraphRoutingActor.dist() intentionally ignores it. Dispatch
+        # policies continue to apply it. The optional STOP A/B mode below
+        # therefore only changes Routing diagnostic mask entries in this version.
         mask = mask.copy()
         if (role == 'routing' and self.stop_mask_mode == 'forbid_when_move'
                 and mask[0] > 0.5 and (mask[1:5] > 0.5).any()):
@@ -48,10 +52,7 @@ class EventCollector:
         }
 
     def _is_agent_replaced(self, role, info):
-        """Match ONLY the conditions that Matrix._save_observation uses to
-        replace a PettingZoo agent with a new alias for the same physical AGV.
-        Do not confuse a whole-environment timeout with agent replacement.
-        """
+        """Match conditions Matrix._save_observation uses to replace aliases."""
         if not isinstance(info, dict):
             return False
         if role == 'routing' and getattr(self.env, 'routing_agent_death', False):
@@ -83,6 +84,7 @@ class EventCollector:
         routing_move_available_decisions = 0
         routing_stop_masked_decisions = 0
         mask_violations = 0
+        routing_invalid_selected = 0
         ended_with = 'agents_exhausted'
 
         while self.env.agents:
@@ -132,11 +134,19 @@ class EventCollector:
             actor_obs = self._prepare(obs, role)
             action, logp, value = self.model.act(role, actor_obs, state, greedy=not train)
             action = int(action)
-            if (not 0 <= action < len(actor_obs['action_mask'])
-                    or actor_obs['action_mask'][action] <= 0.5):
+            # Always enforce tensor action bounds (Routing has five logits).
+            # Only Dispatch requires action-mask legality. Unmasked Routing
+            # actions can be invalid directions and must pass to AnyLogic,
+            # exactly as in the no-mask Tobias routing experiment.
+            if not 0 <= action < self.model.roles[role].actor.action_dim:
+                raise RuntimeError(f'{role} AGV={physical}: action {action} out of bounds')
+            if actor_obs['action_mask'][action] <= 0.5:
                 mask_violations += 1
-                raise RuntimeError(f'{role} AGV={physical}: action {action} violates mask '
-                                   f'{actor_obs["action_mask"].tolist()}')
+                if role == 'routing':
+                    routing_invalid_selected += 1
+                else:
+                    raise RuntimeError(f'{role} AGV={physical}: action {action} violates mask '
+                                       f'{actor_obs["action_mask"].tolist()}')
 
             action_histograms[role][str(action)] += 1
             if role == 'routing' and action == 0:
@@ -145,8 +155,6 @@ class EventCollector:
                 else:
                     stopped_without_move += 1
 
-            # This current decision becomes an action of the current/new
-            # lifetime; it receives its reward only on its next observation.
             pending[key] = {
                 'role': role, 'observation': actor_obs, 'state': state,
                 'action': action, 'logp': float(logp), 'value': float(value),
@@ -158,8 +166,6 @@ class EventCollector:
                 ended_with = 'max_event_steps'
                 break
 
-        # Non-terminal partial segments: retain their last available bootstrap
-        # next_value; DO NOT synthesize a last reward for pending actions.
         for key in list(active):
             finish_segment(key)
         self.unfinished_last_episode = len(pending)
@@ -182,6 +188,9 @@ class EventCollector:
                 'routing_stop_with_move_available': stopped_with_move,
                 'routing_stop_without_move_available': stopped_without_move,
                 'selected_mask_violations': mask_violations,
+                'routing_invalid_selected': routing_invalid_selected,
+                'routing_action_mask_applied': False,
+                'dispatch_action_mask_applied': True,
                 'stop_mask_mode': self.stop_mask_mode,
                 'routing_move_available_decisions': routing_move_available_decisions,
                 'routing_stop_masked_decisions': routing_stop_masked_decisions,

@@ -290,7 +290,7 @@ def run(argv=None):
         ck=None
         if a.init_checkpoint is not None:
             ck=Path(a.init_checkpoint).resolve()
-        elif index>0:
+        elif index > 0 and a.phase != 'dispatch8':
             prev=out.parent/PHASE_ORDER[index-1]
             previous=_read(prev/'experiment.json')
             _verify_lineage(previous,expected)
