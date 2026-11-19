@@ -9,6 +9,10 @@ Phase order: routing8 -> dispatch8 -> joint8 -> joint12 -> joint16 -> joint20
 Each phase starts at its own EP0. Every next phase inherits full role weights,
 critics, ValueNorm and Adam optimizers from the preceding phase checkpoint.
 """
+#===================== MODULE 00 - IMPORT, ĐƯỜNG DẪN VÀ HẰNG SỐ =====================
+# Mục đích: Nạp thư viện, định vị thư mục thesis và liệt kê phase training.
+# Giải thích: Các đường dẫn module sẽ được băm SHA256 để kiểm tra tính nguyên vẹn.
+
 from __future__ import annotations
 import argparse
 import hashlib
@@ -33,6 +37,16 @@ V15_BUILD_MODULE=ROOT/'scripts'/'v15_tobias_build.py'
 V15_STAGE_MODULE=ROOT/'scripts'/'v15_staged_collector.py'
 
 
+
+#================= KẾT THÚC MODULE 00 - IMPORT, ĐƯỜNG DẪN VÀ HẰNG SỐ =================
+
+
+
+
+#======================= MODULE 01 - TÍNH SHA256 CỦA MỘT FILE =======================
+# Mục đích: Đọc file theo khối và tính mã băm kiểm tra thay đổi nội dung.
+# Giải thích: Tương tự tính CRC/checksum nhưng dùng SHA256.
+
 def _digest(path):
     h=hashlib.sha256()
     with Path(path).open('rb') as stream:
@@ -40,15 +54,45 @@ def _digest(path):
             h.update(c)
     return h.hexdigest()
 
+#=================== KẾT THÚC MODULE 01 - TÍNH SHA256 CỦA MỘT FILE ===================
+
+
+
+
+
+
+#=========================== MODULE 02 - ĐỌC DỮ LIỆU JSON ===========================
+# Mục đích: Đọc text UTF-8 và chuyển thành Python dict/list.
+# Giải thích: Ví dụ state["last_episode"] tương tự truy cập trường trạng thái.
 
 def _read(path): return json.loads(Path(path).read_text(encoding='utf-8-sig'))
 
+#======================= KẾT THÚC MODULE 02 - ĐỌC DỮ LIỆU JSON =======================
+
+
+
+
+
+
+#=========================== MODULE 03 - GHI JSON AN TOÀN ===========================
+# Mục đích: Ghi file tạm .tmp rồi thay thế file chính.
+# Giải thích: Hạn chế file state.json bị hỏng khi chương trình gián đoạn.
 
 def _atomic_json(path,data):
     p=Path(path);tmp=p.with_suffix(p.suffix+'.tmp')
     tmp.write_text(json.dumps(data,indent=2,ensure_ascii=False,default=str),encoding='utf-8')
     os.replace(tmp,p)
 
+#======================= KẾT THÚC MODULE 03 - GHI JSON AN TOÀN =======================
+
+
+
+
+
+
+#======================== MODULE 04 - CHỌN BLUEPRINT CẤU HÌNH ========================
+# Mục đích: Ưu tiên --blueprint; nếu không có, thử các đường dẫn dự án cũ.
+# Giải thích: Trả về đường dẫn config chứa siêu tham số và AnyLogic model.
 
 def _pick_blueprint(provided):
     if provided is not None: return Path(provided).resolve()
@@ -61,6 +105,16 @@ def _pick_blueprint(provided):
         if p.is_file():return p.resolve()
     raise FileNotFoundError('Missing topology/AnyLogic blueprint. Specify --blueprint PATH_TO_V14/run_config_blueprint.json')
 
+#=================== KẾT THÚC MODULE 04 - CHỌN BLUEPRINT CẤU HÌNH ===================
+
+
+
+
+
+
+#=================== MODULE 05 - ĐỌC THAM SỐ TRAINING TỪ TERMINAL ===================
+# Mục đích: argparse phân tích phase, số episode, checkpoint, resume, device và seed.
+# Giải thích: Đồng thời kiểm tra tổ hợp tham số không hợp lệ.
 
 def parse_args(argv=None):
     p=argparse.ArgumentParser(description=__doc__)
@@ -101,6 +155,16 @@ def parse_args(argv=None):
             p.error('Source snapshot episode must be positive')
     return a
 
+#=============== KẾT THÚC MODULE 05 - ĐỌC THAM SỐ TRAINING TỪ TERMINAL ===============
+
+
+
+
+
+
+#=================== MODULE 06 - KIỂM TRA HỆ THỐNG TRƯỚC KHI TRAIN ===================
+# Mục đích: Kiểm tra blueprint, simulator ZIP, giới hạn 20 slot AGV và cấu hình PPO.
+# Giải thích: Tính fingerprint nguồn để khóa điều kiện thí nghiệm.
 
 def preflight(a):
     blueprint=_pick_blueprint(a.blueprint)
@@ -136,6 +200,16 @@ def preflight(a):
     out=a.output_root.resolve()/a.phase
     return cfg,blueprint,model,fingerprints,out,p
 
+#============== KẾT THÚC MODULE 06 - KIỂM TRA HỆ THỐNG TRƯỚC KHI TRAIN ==============
+
+
+
+
+
+
+#================= MODULE 07 - KIỂM TRA CHECKPOINT TRONG STATE.JSON =================
+# Mục đích: Xác minh file checkpoint nằm đúng phase và có đúng SHA256.
+# Giải thích: Chống resume nhầm hoặc đọc checkpoint bị thay đổi.
 
 def _checkpoint(state,out):
     path=Path(state['checkpoint']).resolve()
@@ -145,6 +219,16 @@ def _checkpoint(state,out):
         raise RuntimeError('Checkpoint hash mismatch; refusing corrupt resume/transfer')
     return path
 
+#============= KẾT THÚC MODULE 07 - KIỂM TRA CHECKPOINT TRONG STATE.JSON =============
+
+
+
+
+
+
+#======================== MODULE 08 - TẠO METADATA THÍ NGHIỆM ========================
+# Mục đích: Ghi phase, số xe, code hash, model, seed, reward và thiết bị.
+# Giải thích: Dùng khi resume/đánh giá để tái lập điều kiện chạy.
 
 def _meta(a,cfg,blueprint,model,fingerprints,phaseidx):
     return dict(version=VERSION,phase=a.phase,phase_index=phaseidx,
@@ -163,6 +247,16 @@ def _meta(a,cfg,blueprint,model,fingerprints,phaseidx):
         phase_train_episode_index_starts_at=0,
         dispatch_mask_mode='tobias_original_union')
 
+#=================== KẾT THÚC MODULE 08 - TẠO METADATA THÍ NGHIỆM ===================
+
+
+
+
+
+
+#===================== MODULE 09 - SO SÁNH TÍNH KẾ THỪA CẤU HÌNH =====================
+# Mục đích: Đối chiếu fingerprint, blueprint, seed và tham số giữa hai phase.
+# Giải thích: Nếu khác, từ chối tiếp tục để tránh trộn hai thí nghiệm.
 
 def _verify_lineage(old,current):
     comparable=('version','blueprint_sha256','anylogic_sha256','fingerprints',
@@ -171,7 +265,17 @@ def _verify_lineage(old,current):
     diff={k:(old.get(k),current.get(k)) for k in comparable if old.get(k)!=current.get(k)}
     if diff:raise RuntimeError('Cross-stage source/config mismatch: '+str(diff))
 
+#================ KẾT THÚC MODULE 09 - SO SÁNH TÍNH KẾ THỪA CẤU HÌNH ================
 
+
+
+
+
+
+
+#=============== MODULE 10 - BẢO ĐẢM ROLE ĐÓNG BĂNG KHÔNG BỊ THAY ĐỔI ===============
+# Mục đích: Băm trạng thái Actor, Critic và ValueNorm của role không train.
+# Giải thích: Kiểm tra trước và sau PPO update.
 
 def _frozen_role_hashes(model, trained_roles):
     """Read-only audit: verify pretraining does not change frozen-role weights."""
@@ -188,6 +292,16 @@ def _frozen_role_hashes(model, trained_roles):
         output[name]=h.hexdigest()
     return output
 
+#=========== KẾT THÚC MODULE 10 - BẢO ĐẢM ROLE ĐÓNG BĂNG KHÔNG BỊ THAY ĐỔI ===========
+
+
+
+
+
+
+#==================== MODULE 11 - CHỌN CHECKPOINT ROLE CHO JOINT8 ====================
+# Mục đích: Đọc hai snapshot routing8/dispatch8 khi có tùy chọn opt-in.
+# Giải thích: Kiểm tra source, SHA256 và đăng ký snapshot.
 
 def _joint_snapshot_sources(a, expected, run_root):
     """Validate TWO committed source snapshots before touching joint8 outputs.
@@ -218,6 +332,16 @@ def _joint_snapshot_sources(a, expected, run_root):
                            checkpoint_sha256=_digest(snapshot))
     return result
 
+#=============== KẾT THÚC MODULE 11 - CHỌN CHECKPOINT ROLE CHO JOINT8 ===============
+
+
+
+
+
+
+#================= MODULE 12 - CHUYỂN TRỌNG SỐ CÁC ROLE SANG JOINT8 =================
+# Mục đích: Nạp Actor, Critic, optimizer và ValueNorm từ hai checkpoint.
+# Giải thích: Đảm bảo role được khởi tạo đúng theo giai đoạn tiền huấn luyện.
 
 def _load_joint_roles(model, sources):
     """Transfer each role's actor, critic, ValueNorm and Adam state intact.
@@ -249,8 +373,22 @@ def _load_joint_roles(model, sources):
           sources['routing8']['episode'],'dispatch front/rear from dispatch8 EP',
           sources['dispatch8']['episode'],flush=True)
 
+#============= KẾT THÚC MODULE 12 - CHUYỂN TRỌNG SỐ CÁC ROLE SANG JOINT8 =============
+
+
+
+
+
+
+#=============== MODULE 13 - HÀM ĐIỀU PHỐI TOÀN BỘ QUÁ TRÌNH TRAINING ===============
+# Mục đích: Quản lý cấu hình, tạo AnyLogic/MAPPO, thu episode, gọi PPO, lưu checkpoint.
+# Giải thích: Chức năng tương tự main() của một chương trình C điều khiển toàn hệ thống.
 
 def run(argv=None):
+
+    #================== PHẦN RUN-01 - ĐỌC THAM SỐ VÀ KIỂM TRA TRƯỚC RUN ==================
+    # Chuyển chuỗi lệnh vào biến a, xác thực cấu hình và fingerprint.
+
     a=parse_args(argv)
     cfg,blueprint,simulator,fingerprints,out,index=preflight(a)
     expected=_meta(a,cfg,blueprint,simulator,fingerprints,index)
@@ -259,6 +397,10 @@ def run(argv=None):
         src=Path(a.init_checkpoint).resolve()
         expected['init_checkpoint']=str(src)
         expected['init_checkpoint_sha256']=_digest(src)
+
+    #=========================== PHẦN RUN-02 - CHẾ ĐỘ DRY RUN ===========================
+    # In thông tin, không khởi tạo AnyLogic, không train.
+
     if a.dry_run:
         print('[V15 DRY RUN OK] phase=',a.phase,'fleet=',PHASES[a.phase][0],
               'roles=',PHASES[a.phase][1],'sim=3600 seconds',flush=True)
@@ -273,6 +415,10 @@ def run(argv=None):
         print('[V15 DRY RUN OK] Dispatch mask=Tobias original union',flush=True)
         print('[V15 DRY RUN OK] no environment launched and no output modified')
         return
+
+    #======================= PHẦN RUN-03 - RESUME HAY KHỞI TẠO EP0 =======================
+    # Resume kiểm tra state/metrics; run mới chuẩn bị checkpoint nguồn.
+
     if a.resume:
         actual=_read(out/'experiment.json')
         _verify_lineage(actual,expected)
@@ -302,6 +448,10 @@ def run(argv=None):
             ck=None  # All THREE roles will load from their requested snapshots.
         state=dict(last_episode=0,checkpoint=None,checkpoint_sha256=None,
                    run_seconds=0.0,snapshots=[],source_checkpoint=str(ck) if ck else None)
+
+    #======================= PHẦN RUN-04 - CỐ ĐỊNH SEED / THIẾT BỊ =======================
+    # Chuẩn bị PyTorch, NumPy, CUDA và random seed.
+
     import numpy as np
     import torch
     from v15_tobias_build import build_v15, TOBIAS_DISPATCH_MASK_MODE
@@ -319,6 +469,10 @@ def run(argv=None):
     logging.getLogger('alpyne').setLevel(logging.ERROR)
     env=None
     try:
+
+        #=================== PHẦN RUN-05 - KHỞI TẠO ANYLOGIC VÀ MẠNG MAPPO ===================
+        # Builder cung cấp environment, ba role và đồ thị giao thông.
+
         env,model,graph,arch=build_v15(cfg,model_path=simulator,
             fleet_size=PHASES[a.phase][0],port=a.port,device=a.device,seed=a.seed,
             max_events=a.max_events,sim_seconds=3600,checkpoint=ck,phase=a.phase)
@@ -329,6 +483,10 @@ def run(argv=None):
                 raise RuntimeError('Initial checkpoint MAPPOConfig differs from V15 configuration')
         if joint_sources:
             _load_joint_roles(model,joint_sources)
+
+        #======================= PHẦN RUN-06 - GHI TRẠNG THÁI KHỞI TẠO =======================
+        # Tạo EP0, initial checkpoint, experiment.json, metrics.jsonl.
+
         if not a.resume:
             out.mkdir(parents=True,exist_ok=True)
             shutil.copy2(blueprint,out/'run_config_blueprint.json')
@@ -349,38 +507,70 @@ def run(argv=None):
         if a.init_only:
             print('[V15 INIT ONLY] No training conducted');return
         # No guidance, no GNN wrapper, no collector/algorithm source edits.
+
+        #================== PHẦN RUN-07 - KẾT NỐI POLICY VÀ EVENT COLLECTOR ==================
+        # Adapter chọn controller theo role; collector thu trajectories.
+
         adapter=StagePolicyAdapter(model,a.phase,a.seed)
         collector=EventCollector(adapter,env,stop_mask_mode='baseline')
         phase_number=index
+
+        #========================== PHẦN RUN-08 - VÒNG LẶP EPISODE ==========================
+        # Lặp lại cho đến khi đạt tổng số EP đã yêu cầu.
+
         while state['last_episode']<a.max_episodes:
             ep=int(state['last_episode'])+1
             roll_seed=int(a.seed)+phase_number*100000+ep-1
             random.seed(roll_seed);np.random.seed(roll_seed);torch.manual_seed(roll_seed)
             adapter.rng=np.random.default_rng(roll_seed)
             t0=time.monotonic()
+
+            #=================== PHẦN RUN-09 - CHẠY MÔ PHỎNG VÀ THU TRAJECTORY ===================
+            # Mỗi episode được chạy hết trước khi PPO update.
+
             paths,meta=collector.episode(seed=roll_seed,train=True,max_event_steps=a.max_events)
             if meta['end_reason']=='max_event_steps':
                 raise RuntimeError('Max-events truncated rollout. No PPO update.')
             if GraphSpec.from_hive(env.agent_hive).fingerprint!=graph.fingerprint:
                 raise RuntimeError('Hive graph changed within training')
+
+            #========================= PHẦN RUN-10 - LỌC ROLE CẦN TRAIN =========================
+            # Chỉ dùng các transition thuộc role active.
+
             selected=trained_trajectories(paths,a.phase)
             observed={segment[0]['role'] for segment in selected if segment}
             if not observed.intersection(PHASES[a.phase][1]):
                 raise RuntimeError('No trainable transitions collected')
+
+            #========================== PHẦN RUN-11 - KIỂM TRA LOG-PROB ==========================
+            # Từ chối update nếu log-prob lúc rollout không khớp mạng.
+
             parity=audit_rollout_roles(model,selected,max_per_role=48)
             if any(isinstance(x,dict) and x.get('passed') is False for x in parity.values()):
                 raise RuntimeError('PPO rollout logprob mismatch; refusing update')
             # Reuse V7 stable PPO, unchanged: only selected role trajectories.
             frozen_before=_frozen_role_hashes(model,PHASES[a.phase][1])
+
+            #=================== PHẦN RUN-12 - CẬP NHẬT ACTOR/CRITIC BẰNG PPO ===================
+            # Đây mới là nơi gọi GAE, PPO loss, backward và Adam.
+
             updates=model.train(selected)
             if _frozen_role_hashes(model,PHASES[a.phase][1])!=frozen_before:
                 raise RuntimeError('A frozen role changed during PPO; aborting commit')
             if set(updates)-set(PHASES[a.phase][1]):
                 raise RuntimeError('Unexpected frozen role optimizer updated')
+
+            #====================== PHẦN RUN-13 - LƯU CHECKPOINT SAU UPDATE ======================
+            # Luân phiên hai slot, tránh ghi đè snapshot cũ.
+
             slot=out/f'rolling_slot_{ep%2}.pt'
             tmp=out/f'rolling_slot_{ep%2}.pt.tmp'
             model.save(str(tmp));os.replace(tmp,slot)
             elapsed=time.monotonic()-t0
+
+            #======================= PHẦN RUN-14 - LƯU METRICS TỪ EPISODE =======================
+            # Ghi JSONL, cập nhật state.json và snapshot định kỳ.
+
             row=dict(version=VERSION,phase=a.phase,episode=ep,
                      fleet_size=PHASES[a.phase][0],sim_seconds=3600,
                      environment_seed=roll_seed,environment=meta,
@@ -418,5 +608,21 @@ def run(argv=None):
         if env is not None:env.close()
     print('[V15 PHASE DONE]',a.phase,'committed EP',state['last_episode'],'output',out,flush=True)
 
+#=========== KẾT THÚC MODULE 13 - HÀM ĐIỀU PHỐI TOÀN BỘ QUÁ TRÌNH TRAINING ===========
+
+
+
+
+
+
+#========================= MODULE 14 - ĐIỂM VÀO TRAINER V15 =========================
+# Mục đích: Chỉ gọi run() khi file được chạy trực tiếp.
+# Giải thích: V16-B dùng lại hàm này thông qua wrapper, nên log vẫn có nhãn V15.
 
 if __name__=='__main__':run()
+
+#===================== KẾT THÚC MODULE 14 - ĐIỂM VÀO TRAINER V15 =====================
+
+
+
+

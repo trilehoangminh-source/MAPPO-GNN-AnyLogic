@@ -1,6 +1,23 @@
+#======================== GIẢI THÍCH FILE: TẠO CẤU HÌNH ALPYNE ========================
+# Tạo cấu hình mô phỏng AnyLogic theo cấu trúc mà client cần.
+# BẢN ĐỌC HIỂU: chỉ bổ sung comment/khoảng trắng; KHÔNG thay đổi câu lệnh gốc.
+# Lưu ý: comment vẫn làm thay đổi SHA256 của file (cần init run mới nếu dùng train).
+#================================ HẾT GIỚI THIỆU FILE =================================
+
+
+
+
+
+#========================= MODULE 01 - CÁC THƯ VIỆN / IMPORT ==========================
+# import/from trong Python tương tự #include ở C, nhưng có hệ thống module và package.
 from ..envs.alpyne121_bridge import Configuration
+#===================== KẾT THÚC MODULE 01 - CÁC THƯ VIỆN / IMPORT =====================
 
 
+
+
+#============================ MODULE 02 - HÀM BUILD_CONFIG ============================
+# Tạo dictionary cấu hình chính thức cho client AnyLogic/Alpyne.
 def build_config(
     config_args: dict, fleetsize: int, seed=None, runmode: int = 1
 ) -> Configuration:
@@ -133,3 +150,6 @@ def build_config(
             else config_args["io_quote"]
         ),
     )
+#======================= KẾT THÚC MODULE 02 - HÀM BUILD_CONFIG ========================
+
+

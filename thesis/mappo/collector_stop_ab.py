@@ -1,3 +1,10 @@
+#============ GIẢI THÍCH FILE: EVENT COLLECTOR V16-B (ROUTING KHÔNG MASK) =============
+# Ghép reward vào quyết định trước theo đúng AGV vật lý; giữ các episode/lifetime riêng khi thay alias.
+# BẢN ĐỌC HIỂU: chỉ bổ sung comment/khoảng trắng; KHÔNG thay đổi câu lệnh gốc.
+# Lưu ý: comment vẫn làm thay đổi SHA256 của file (cần init run mới nếu dùng train).
+#================================ HẾT GIỚI THIỆU FILE =================================
+
+
 """Event-driven Tobias/AnyLogic MAPPO collector with lifecycle-safe GAE segments.
 
 Reward for an action is consumed only upon the NEXT observation of that same
@@ -14,13 +21,28 @@ V15 routing-no-mask experiment:
   by the collector. AnyLogic is responsible for processing that direction.
 - Dispatch Front/Rear still enforce their original action mask.
 """
+
+
+
+#========================= MODULE 01 - CÁC THƯ VIỆN / IMPORT ==========================
+# import/from trong Python tương tự #include ở C, nhưng có hệ thống module và package.
 from __future__ import annotations
 
 from collections import Counter, defaultdict
 import numpy as np
+#===================== KẾT THÚC MODULE 01 - CÁC THƯ VIỆN / IMPORT =====================
 
 
+
+
+#=========================== MODULE 02 - LỚP EVENTCOLLECTOR ===========================
+# Ghi các transition theo thời gian sự kiện và ghép reward vào quyết định đúng agent.
 class EventCollector:
+
+
+    #============================ MODULE CON 01 - __INIT__ ============================
+    # Mục đích: Khởi tạo thuộc tính, tham số và bộ nhớ cho đối tượng.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def __init__(self, model, environment, stop_mask_mode="baseline"):
         if stop_mask_mode not in ("baseline", "forbid_when_move"):
             raise ValueError(f"Unknown stop_mask_mode: {stop_mask_mode}")
@@ -28,7 +50,14 @@ class EventCollector:
         self.model = model
         self.env = environment
         self.unfinished_last_episode = 0
+    #======================= KẾT THÚC MODULE CON 01 - __INIT__ ========================
 
+
+
+
+    #============================ MODULE CON 02 - _PREPARE ============================
+    # Mục đích: Chuyển obs thành float32; giữ mask để chẩn đoán nhưng Routing V16-B vẫn không mask.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def _prepare(self, observation, role):
         mask = np.asarray(observation['action_mask'], dtype=np.float32).reshape(-1)
         n = self.model.roles[role].actor.action_dim
@@ -50,7 +79,14 @@ class EventCollector:
             'stat': np.asarray(observation['stat'], dtype=np.float32).copy(),
             'action_mask': mask.copy(),
         }
+    #======================= KẾT THÚC MODULE CON 02 - _PREPARE ========================
 
+
+
+
+    #======================= MODULE CON 03 - _IS_AGENT_REPLACED =======================
+    # Mục đích: Nhận biết AGV bị thay alias/lifetime để không nối hai trajectory khác đời AGV.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def _is_agent_replaced(self, role, info):
         """Match conditions Matrix._save_observation uses to replace aliases."""
         if not isinstance(info, dict):
@@ -62,8 +98,18 @@ class EventCollector:
             return (('in_system' in info and not bool(info['in_system']))
                     or ('at_target' in info and bool(info['at_target'])))
         return False
+    #================== KẾT THÚC MODULE CON 03 - _IS_AGENT_REPLACED ===================
 
+
+
+
+    #============================ MODULE CON 04 - EPISODE =============================
+    # Mục đích: Chạy một episode event-driven; ghép reward với action trước của cùng physical AGV; xuất trajectory và thống kê.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def episode(self, seed=None, train=True, max_event_steps=None):
+
+        #========================= MỤC NHỎ - KHỞI TẠO EPISODE =========================
+        # Reset AnyLogic; tạo pending action và các GAE segment riêng theo lifetime.
         self.env.reset(seed=seed)
         pending = {}  # (role, physical index) -> action awaiting its reward
         active = defaultdict(list)  # GAE segment for current lifetime only
@@ -87,6 +133,9 @@ class EventCollector:
         routing_invalid_selected = 0
         ended_with = 'agents_exhausted'
 
+
+        #========================= MỤC NHỎ - VÒNG LẶP SỰ KIỆN =========================
+        # Mỗi lần chỉ có một agent được gọi, KHÔNG phải tick đồng bộ toàn hệ thống.
         while self.env.agents:
             obs, reward, done, info = self.env.last()
             agent_id = str(self.env.agent_selection)
@@ -99,6 +148,9 @@ class EventCollector:
             sim_time = float(self.env.get_mappo_time())
             replaced = self._is_agent_replaced(role, info)
 
+
+            #=============== MỤC NHỎ - GHÉP REWARD VỚI QUYẾT ĐỊNH TRƯỚC ===============
+            # Khi cùng physical AGV được gọi lại, mới đóng transition và gán reward/next_value.
             if key in pending:
                 previous = pending.pop(key)
                 previous['reward'] = float(reward)
@@ -114,6 +166,9 @@ class EventCollector:
                 active[key].append(previous)
                 delivered_reward += float(reward)
 
+
+            #=============== MỤC NHỎ - NGẮT LIFETIME KHI ALIAS THAY ĐỔI ===============
+            # Đóng segment để GAE không bootstrap qua hai vòng đời khác nhau.
             if replaced:
                 alias_boundaries[role] += 1
                 finish_segment(key)
@@ -124,6 +179,9 @@ class EventCollector:
                 finish_segment(key)
                 break
 
+
+            #==================== MỤC NHỎ - THỐNG KÊ MASK ROUTING =====================
+            # Đọc mask để đếm Invalid/Stop; actor Routing không bị ép theo mask.
             if role == 'routing':
                 original_mask = np.asarray(obs['action_mask'], dtype=np.float32).reshape(-1)[:5]
                 move_available = bool((original_mask[1:5] > 0.5).any())
@@ -132,6 +190,9 @@ class EventCollector:
                         and original_mask[0] > 0.5):
                     routing_stop_masked_decisions += 1
             actor_obs = self._prepare(obs, role)
+
+            #=============== MỤC NHỎ - CHỌN HÀNH ĐỘNG BẰNG ACTOR/CRITIC ===============
+            # Lưu action, log-prob và ValueNorm-denormalized critic value.
             action, logp, value = self.model.act(role, actor_obs, state, greedy=not train)
             action = int(action)
             # Always enforce tensor action bounds (Routing has five logits).
@@ -160,12 +221,18 @@ class EventCollector:
                 'action': action, 'logp': float(logp), 'value': float(value),
                 'time': sim_time,
             }
+
+            #================= MỤC NHỎ - GỬI HÀNH ĐỘNG SANG ANYLOGIC ==================
+            # Tiếp tục simulator tới event kế tiếp rồi lặp vòng.
             self.env.step(action)
             events += 1
             if max_event_steps is not None and events >= max_event_steps:
                 ended_with = 'max_event_steps'
                 break
 
+
+        #========================= MỤC NHỎ - ĐÓNG CÁC SEGMENT =========================
+        # Thống kê pending action cuối episode chưa nhận được reward.
         for key in list(active):
             finish_segment(key)
         self.unfinished_last_episode = len(pending)
@@ -196,3 +263,8 @@ class EventCollector:
                 'routing_stop_masked_decisions': routing_stop_masked_decisions,
             },
         }
+    #======================== KẾT THÚC MODULE CON 04 - EPISODE ========================
+
+#====================== KẾT THÚC MODULE 02 - LỚP EVENTCOLLECTOR =======================
+
+

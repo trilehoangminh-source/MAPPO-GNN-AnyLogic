@@ -1,9 +1,31 @@
+#================= GIẢI THÍCH FILE: CÁC KHỐI MẠNG VÀ ĐỒ THỊ TỪ TOBIAS =================
+# Transformer, embedding tọa độ/Fourier và dữ liệu topology Matrix/MiniMatrix.
+# BẢN ĐỌC HIỂU: chỉ bổ sung comment/khoảng trắng; KHÔNG thay đổi câu lệnh gốc.
+# Lưu ý: comment vẫn làm thay đổi SHA256 của file (cần init run mới nếu dùng train).
+#================================ HẾT GIỚI THIỆU FILE =================================
+
+
+
+
+
+#========================= MODULE 01 - CÁC THƯ VIỆN / IMPORT ==========================
+# import/from trong Python tương tự #include ở C, nhưng có hệ thống module và package.
 from torch import nn
 import torch
 from collections import OrderedDict
+#===================== KẾT THÚC MODULE 01 - CÁC THƯ VIỆN / IMPORT =====================
 
 
+
+
+#====================== MODULE 02 - LỚP TRANSFORMERENCODERBLOCK =======================
+# Khối encoder attention kiểu Transformer.
 class TransformerEncoderBlock(nn.Module):
+
+
+    #============================ MODULE CON 01 - __INIT__ ============================
+    # Mục đích: Khởi tạo thuộc tính, tham số và bộ nhớ cho đối tượng.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def __init__(self, embed_dim, n_heads, n_agents, activation=nn.ReLU) -> None:
         super().__init__()
         self.attention = nn.MultiheadAttention(
@@ -17,7 +39,14 @@ class TransformerEncoderBlock(nn.Module):
             activation(),
         )
         self.norm2 = nn.LayerNorm((n_agents, embed_dim))
+    #======================= KẾT THÚC MODULE CON 01 - __INIT__ ========================
 
+
+
+
+    #============================ MODULE CON 02 - FORWARD =============================
+    # Mục đích: Tính phép biến đổi tensor theo luồng đi tới của mạng PyTorch.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def forward(self, x):
         attended = self.attention(x, x, x, need_weights=False)[0]
         x = x + attended
@@ -26,9 +55,21 @@ class TransformerEncoderBlock(nn.Module):
         x = fedforward + x
         normed2 = self.norm2(x)
         return normed2
+    #======================== KẾT THÚC MODULE CON 02 - FORWARD ========================
+
+#================== KẾT THÚC MODULE 02 - LỚP TRANSFORMERENCODERBLOCK ==================
 
 
+
+
+#====================== MODULE 03 - LỚP TRANSFORMERDECODERBLOCK =======================
+# Khối decoder kết hợp attention và mạng feed-forward.
 class TransformerDecoderBlock(nn.Module):
+
+
+    #============================ MODULE CON 01 - __INIT__ ============================
+    # Mục đích: Khởi tạo thuộc tính, tham số và bộ nhớ cho đối tượng.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def __init__(self, embed_dim, n_heads, n_agents, activation=nn.ReLU) -> None:
         super().__init__()
         self.self_attention = nn.MultiheadAttention(
@@ -46,7 +87,14 @@ class TransformerDecoderBlock(nn.Module):
             activation(),
         )
         self.norm3 = nn.LayerNorm((n_agents, embed_dim))
+    #======================= KẾT THÚC MODULE CON 01 - __INIT__ ========================
 
+
+
+
+    #============================ MODULE CON 02 - FORWARD =============================
+    # Mục đích: Tính phép biến đổi tensor theo luồng đi tới của mạng PyTorch.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def forward(self, inputs, outputs, attn_mask  = None):
         self_attended = self.self_attention(
             outputs, outputs, outputs, need_weights=False
@@ -60,9 +108,21 @@ class TransformerDecoderBlock(nn.Module):
         x = fedforward + x
         normed3 = self.norm3(x)
         return normed3
+    #======================== KẾT THÚC MODULE CON 02 - FORWARD ========================
+
+#================== KẾT THÚC MODULE 03 - LỚP TRANSFORMERDECODERBLOCK ==================
 
 
+
+
+#=============================== MODULE 04 - LỚP GRAPH ================================
+# Mạng đồ thị với vị trí node và liên kết path.
 class Graph(nn.Module):
+
+
+    #============================ MODULE CON 01 - __INIT__ ============================
+    # Mục đích: Khởi tạo thuộc tính, tham số và bộ nhớ cho đối tượng.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def __init__(self) -> None:
         super().__init__()
         self.register_buffer(
@@ -81,13 +141,34 @@ class Graph(nn.Module):
             "indices",
             torch.arange(0, self.nodes.shape[0]), persistent=False
         )
+    #======================= KẾT THÚC MODULE CON 01 - __INIT__ ========================
 
+
+
+
+    #=========================== MODULE CON 02 - INIT_NODES ===========================
+    # Mục đích: Khởi tạo nodes theo cấu trúc của đối tượng.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def init_nodes(self):
         return OrderedDict([])
+    #====================== KẾT THÚC MODULE CON 02 - INIT_NODES =======================
 
+
+
+
+    #=========================== MODULE CON 03 - INIT_PATHS ===========================
+    # Mục đích: Khởi tạo paths theo cấu trúc của đối tượng.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def init_paths(self):
         return []
+    #====================== KẾT THÚC MODULE CON 03 - INIT_PATHS =======================
 
+
+
+
+    #======================== MODULE CON 04 - GET_NODE_INDICES ========================
+    # Mục đích: Truy xuất node indices từ trạng thái/dữ liệu đã lưu.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     @torch.no_grad()
     def get_node_indices(self, nodes: torch.Tensor):
         original_shape = nodes.shape
@@ -99,7 +180,14 @@ class Graph(nn.Module):
             original_shape[:-1]
         )
         return indices
+    #=================== KẾT THÚC MODULE CON 04 - GET_NODE_INDICES ====================
 
+
+
+
+    #============================ MODULE CON 05 - SUBGRAPH ============================
+    # Mục đích: Xử lý subgraph theo logic của lớp Graph.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def subgraph(self, center, distance):
         nodes = self.get_node_indices(center).unsqueeze(0)
         for d in range(distance):
@@ -107,14 +195,28 @@ class Graph(nn.Module):
             nodes = torch.concat([nodes, new]).unique()
         paths = self.paths[:,torch.isin(self.paths, nodes, assume_unique=True).all(dim=0)]
         return nodes,paths 
+    #======================= KẾT THÚC MODULE CON 05 - SUBGRAPH ========================
 
 
+
+#=========================== KẾT THÚC MODULE 04 - LỚP GRAPH ===========================
+
+
+
+
+#=========================== MODULE 05 - LỚP POINTEMBEDDING ===========================
+# Biến tọa độ/nút thành vector embedding.
 class PointEmbedding(nn.Module):
     """Input:  (*, 2)
     Output: (*, embed_size)
     creates an embedding based on 2D-points
     """
 
+
+
+    #============================ MODULE CON 01 - __INIT__ ============================
+    # Mục đích: Khởi tạo thuộc tính, tham số và bộ nhớ cho đối tượng.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def __init__(self, max_len=200, embed_size=2) -> None:
         super().__init__()
         self.hwm = nn.Parameter(torch.Tensor([0]), requires_grad=False)
@@ -124,12 +226,26 @@ class PointEmbedding(nn.Module):
         self.register_parameter("HWM", self.hwm)
         self.register_parameter("indices", self.indices)
         self.embedding = nn.Embedding(max_len, embed_size)
+    #======================= KẾT THÚC MODULE CON 01 - __INIT__ ========================
 
+
+
+
+    #=========================== MODULE CON 02 - _ADD_NODES ===========================
+    # Mục đích: Hàm nội bộ add nodes; được gọi bởi các hàm cấp cao hơn.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def _add_nodes(self, new_nodes):
         assert int(self.hwm) + len(new_nodes) <= len(self.nodes)
         self.nodes[int(self.hwm) : int(self.hwm[0]) + len(new_nodes)] = new_nodes
         self.hwm += len(new_nodes)
+    #====================== KẾT THÚC MODULE CON 02 - _ADD_NODES =======================
 
+
+
+
+    #============================ MODULE CON 03 - FORWARD =============================
+    # Mục đích: Tính phép biến đổi tensor theo luồng đi tới của mạng PyTorch.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def forward(self, points: torch.Tensor) -> torch.Tensor:
         orig_dim = points.shape
         points = (
@@ -150,17 +266,36 @@ class PointEmbedding(nn.Module):
             self.indices.repeat(len(points), 1)[choice].reshape(orig_dim[:-1]).detach()
         )
         return self.embedding(indices).detach()
+    #======================== KẾT THÚC MODULE CON 03 - FORWARD ========================
+
+#====================== KẾT THÚC MODULE 05 - LỚP POINTEMBEDDING =======================
 
 
+
+
+#======================= MODULE 06 - LỚP MATRIXPOSITIONEMBEDDER =======================
+# Mã hóa vị trí trong mạng Matrix.
 class MatrixPositionEmbedder(nn.Module):
     """Inputs: (*, x)
     Output: (*, x + len(pos_cols) * embed_size)
     """
 
+
+
+    #============================ MODULE CON 01 - __INIT__ ============================
+    # Mục đích: Khởi tạo thuộc tính, tham số và bộ nhớ cho đối tượng.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def __init__(self, embed_size, resolution=200) -> None:
         super().__init__()
         self.pointembedder = PointEmbedding(max_len=resolution, embed_size=embed_size)
+    #======================= KẾT THÚC MODULE CON 01 - __INIT__ ========================
 
+
+
+
+    #============================ MODULE CON 02 - FORWARD =============================
+    # Mục đích: Tính phép biến đổi tensor theo luồng đi tới của mạng PyTorch.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def forward(self, x: torch.Tensor, pos_cols):
         pos_cols = torch.Tensor([[p, p + 1] for p in pos_cols]).to(dtype=torch.long)
         orig_dim = x.shape
@@ -169,15 +304,34 @@ class MatrixPositionEmbedder(nn.Module):
         embedded = self.pointembedder(to_embed)
         back_in_shape = embedded.reshape(orig_dim[:-1] + (-1,))
         return torch.concat([x, back_in_shape], dim=-1)
+    #======================== KẾT THÚC MODULE CON 02 - FORWARD ========================
+
+#================== KẾT THÚC MODULE 06 - LỚP MATRIXPOSITIONEMBEDDER ===================
 
 
+
+
+#======================= MODULE 07 - LỚP FOURIERFEATUREEMBEDDER =======================
+# Mã hóa số thực/không gian bằng đặc trưng Fourier.
 class FourierFeatureEmbedder(nn.Module):
 
+
+
+    #============================ MODULE CON 01 - __INIT__ ============================
+    # Mục đích: Khởi tạo thuộc tính, tham số và bộ nhớ cho đối tượng.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def __init__(self, size = 4, sigma = 1) -> None:
         super().__init__()
         self.b = nn.Parameter(torch.randn(size, 2) * sigma, requires_grad=False)
         self.register_parameter("b", self.b)
+    #======================= KẾT THÚC MODULE CON 01 - __INIT__ ========================
 
+
+
+
+    #============================ MODULE CON 02 - FORWARD =============================
+    # Mục đích: Tính phép biến đổi tensor theo luồng đi tới của mạng PyTorch.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     @torch.no_grad()
     def forward(self, x: torch.Tensor, pos_cols):
         pos_cols = torch.Tensor([[p, p + 1] for p in pos_cols]).to(dtype=torch.long)
@@ -190,13 +344,31 @@ class FourierFeatureEmbedder(nn.Module):
             features.append(torch.cos(2*torch.pi*torch.tensordot(b, to_embed, dims=([0], [1]))).unsqueeze(1))
         features_in_shape = torch.concat(features, dim=1).reshape(orig_dim[:-1] + (-1,))
         return torch.concat([x, features_in_shape], dim = -1)
+    #======================== KẾT THÚC MODULE CON 02 - FORWARD ========================
+
+#================== KẾT THÚC MODULE 07 - LỚP FOURIERFEATUREEMBEDDER ===================
 
 
 
+
+#============================ MODULE 08 - LỚP MATRIXGRAPH =============================
+# Topology Matrix: danh sách node và các đường liên kết cố định.
 class MatrixGraph(Graph):
+
+
+    #============================ MODULE CON 01 - __INIT__ ============================
+    # Mục đích: Khởi tạo thuộc tính, tham số và bộ nhớ cho đối tượng.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def __init__(self) -> None:
         super().__init__()
+    #======================= KẾT THÚC MODULE CON 01 - __INIT__ ========================
 
+
+
+
+    #=========================== MODULE CON 02 - INIT_NODES ===========================
+    # Mục đích: Khởi tạo nodes theo cấu trúc của đối tượng.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def init_nodes(self):
         return OrderedDict(
             [
@@ -307,7 +479,14 @@ class MatrixGraph(Graph):
              (104, (0.8582677165354331, 0.42168674698795183))
             ]
         )
+    #====================== KẾT THÚC MODULE CON 02 - INIT_NODES =======================
 
+
+
+
+    #=========================== MODULE CON 03 - INIT_PATHS ===========================
+    # Mục đích: Khởi tạo paths theo cấu trúc của đối tượng.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def init_paths(self):
         return [
             (1, 0),
@@ -639,12 +818,31 @@ class MatrixGraph(Graph):
  (104, 91),
  (91, 104)
         ]
+    #====================== KẾT THÚC MODULE CON 03 - INIT_PATHS =======================
+
+#======================== KẾT THÚC MODULE 08 - LỚP MATRIXGRAPH ========================
 
 
+
+
+#========================== MODULE 09 - LỚP MINIMATRIXGRAPH ===========================
+# Topology của phiên bản MiniMatrix nhỏ hơn.
 class MiniMatrixGraph(Graph):
+
+
+    #============================ MODULE CON 01 - __INIT__ ============================
+    # Mục đích: Khởi tạo thuộc tính, tham số và bộ nhớ cho đối tượng.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def __init__(self) -> None:
         super().__init__()
+    #======================= KẾT THÚC MODULE CON 01 - __INIT__ ========================
 
+
+
+
+    #=========================== MODULE CON 02 - INIT_NODES ===========================
+    # Mục đích: Khởi tạo nodes theo cấu trúc của đối tượng.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def init_nodes(self):
         return OrderedDict(
             [
@@ -676,7 +874,14 @@ class MiniMatrixGraph(Graph):
                 (25, (0.9727272727272728, 1.0)),
             ]
         )
+    #====================== KẾT THÚC MODULE CON 02 - INIT_NODES =======================
 
+
+
+
+    #=========================== MODULE CON 03 - INIT_PATHS ===========================
+    # Mục đích: Khởi tạo paths theo cấu trúc của đối tượng.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def init_paths(self):
         return [
             (0, 1),
@@ -760,3 +965,8 @@ class MiniMatrixGraph(Graph):
             (22, 25),
             (25, 22),
         ]
+    #====================== KẾT THÚC MODULE CON 03 - INIT_PATHS =======================
+
+#====================== KẾT THÚC MODULE 09 - LỚP MINIMATRIXGRAPH ======================
+
+

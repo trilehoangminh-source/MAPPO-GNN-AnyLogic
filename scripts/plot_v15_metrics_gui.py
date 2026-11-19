@@ -12,6 +12,10 @@ Only reads logs. Produces PNG, SVG, CSV, TXT in NEW timestamped folders.
 Training episode curves are NOT evaluation. Matched seeds permit paired comparisons.
 Paper training steps/lead time cannot be inferred from these logs.
 """
+#=========== MODULE 00 - THƯ VIỆN, KIỂM TRA PHỤ THUỘC VÀ DANH SÁCH METRIC ===========
+# Mục đích: Chuẩn bị NumPy, Matplotlib, nhãn đồ thị, kiểm tra thư viện cần thiết.
+# Giải thích: Đây là script đọc log vẽ hình, không huấn luyện mạng.
+
 from __future__ import annotations
 
 import argparse
@@ -51,6 +55,16 @@ KEYS = [
 PLOT_METRICS = {key: (title, ylabel) for key, title, ylabel in KEYS}
 
 
+
+#======= KẾT THÚC MODULE 00 - THƯ VIỆN, KIỂM TRA PHỤ THUỘC VÀ DANH SÁCH METRIC =======
+
+
+
+
+#===================== MODULE 01 - CHUYỂN GIÁ TRỊ METRIC SANG SỐ =====================
+# Mục đích: Đọc một giá trị từ log; trả NaN nếu không đổi được.
+# Giải thích: Không tự đổi dữ liệu thiếu thành 0.
+
 def safe_num(value):
     try:
         n = float(value)
@@ -58,12 +72,26 @@ def safe_num(value):
     except (ValueError, TypeError, OverflowError):
         return float("nan")
 
+#================ KẾT THÚC MODULE 01 - CHUYỂN GIÁ TRỊ METRIC SANG SỐ ================
+
+
+
+
+
+
+#==================== MODULE 02 - ĐỌC LOG TRAINING METRICS.JSONL ====================
+# Mục đích: Chuyển từng dòng JSONL thành chuỗi theo episode: JobDone, Reward, entropy, KL...
+# Giải thích: Tính trục X cumulative events để vẽ các đường huấn luyện.
 
 def read_log(path: Path):
     path = Path(path).expanduser().resolve()
     if not path.is_file():
         raise FileNotFoundError(f"Không thấy file: {path}")
     entries, bad_lines = [], []
+
+    #======================= PHẦN READ_LOG-01 - ĐỌC CÁC DÒNG JSONL =======================
+    # Tách mỗi episode và bỏ qua dòng không hợp lệ.
+
     with path.open("r", encoding="utf-8-sig") as fp:
         for line_no, text in enumerate(fp, 1):
             if not text.strip():
@@ -137,6 +165,16 @@ def read_log(path: Path):
     )
     return data
 
+#================ KẾT THÚC MODULE 02 - ĐỌC LOG TRAINING METRICS.JSONL ================
+
+
+
+
+
+
+#=================== MODULE 03 - LỌC TRUNG BÌNH TRƯỢT CHO TRAINING ===================
+# Mục đích: Làm mượt đường dữ liệu nhưng giữ NaN và độ dài ban đầu.
+# Giải thích: Tương tự lọc trung bình di động trong xử lý tín hiệu.
 
 def sma(values: np.ndarray, window: int):
     # NaNs remain absent; avoid inventing zero observations.
@@ -146,10 +184,30 @@ def sma(values: np.ndarray, window: int):
     denom = np.convolve(valid.astype(float), np.ones(window), mode="full")[:len(a)]
     return np.divide(numer, denom, out=np.full(len(a), np.nan), where=denom > 0)
 
+#============== KẾT THÚC MODULE 03 - LỌC TRUNG BÌNH TRƯỢT CHO TRAINING ==============
+
+
+
+
+
+
+#======================= MODULE 04 - CHỌN TRỤC X CỦA TRAINING =======================
+# Mục đích: Chọn episode hoặc cumulative events theo tùy chọn người dùng.
+# Giải thích: Không dùng trục này cho dữ liệu held-out.
 
 def axis_x(d, use_events: bool):
     return d["event_steps"] if use_events else d["episode"]
 
+#=================== KẾT THÚC MODULE 04 - CHỌN TRỤC X CỦA TRAINING ===================
+
+
+
+
+
+
+#===================== MODULE 05 - CẤU HÌNH TRỤC VÀ LƯỚI ĐỒ THỊ =====================
+# Mục đích: Đặt nhãn trục, lưới, định dạng chia vạch.
+# Giải thích: Tập trung logic giao diện trục để các hình nhất quán.
 
 def common_axes(ax, ylabel, use_events):
     ax.set_xlabel("Training Steps (cumulative events)" if use_events else "Training Episode")
@@ -160,6 +218,16 @@ def common_axes(ax, ylabel, use_events):
     else:
         ax.ticklabel_format(axis="x", style="sci", scilimits=(3, 3))
 
+#================= KẾT THÚC MODULE 05 - CẤU HÌNH TRỤC VÀ LƯỚI ĐỒ THỊ =================
+
+
+
+
+
+
+#===================== MODULE 06 - VẼ ĐƯỜNG CHỈ SỐ TỪ NHIỀU RUN =====================
+# Mục đích: Vẽ đường trung bình trượt và dữ liệu thô cho từng dataset.
+# Giải thích: Trả về trạng thái có dữ liệu hợp lệ để tránh đồ thị rỗng.
 
 def plot_lines(ax, datasets, name, window, use_events, ylabel=None, show_raw=True):
     ylabel = ylabel or PLOT_METRICS[name][1]
@@ -180,6 +248,16 @@ def plot_lines(ax, datasets, name, window, use_events, ylabel=None, show_raw=Tru
         ax.legend(fontsize=8, loc="best", framealpha=0.85)
     common_axes(ax, ylabel, use_events)
 
+#================= KẾT THÚC MODULE 06 - VẼ ĐƯỜNG CHỈ SỐ TỪ NHIỀU RUN =================
+
+
+
+
+
+
+#==================== MODULE 07 - BỐN ĐỒ THỊ CHÍNH KHI HUẤN LUYỆN ====================
+# Mục đích: TargetReached, Blocks, Reward và JobDone theo episode/events.
+# Giải thích: Chỉ mô tả training; không được xem là đánh giá checkpoint held-out.
 
 def plot_training(datasets, window, use_events):
     fig, axs = plt.subplots(2, 2, figsize=(13.2, 8.7))
@@ -200,6 +278,16 @@ def plot_training(datasets, window, use_events):
              ha="center", va="bottom", fontsize=8, color="dimgray")
     return fig
 
+#=============== KẾT THÚC MODULE 07 - BỐN ĐỒ THỊ CHÍNH KHI HUẤN LUYỆN ===============
+
+
+
+
+
+
+#================= MODULE 08 - SÁU ĐỒ THỊ CHẨN ĐOÁN GIAO THÔNG / PPO =================
+# Mục đích: LiveLock, WrongTarget, Invalid và Entropy/KL/Value Loss theo role.
+# Giải thích: Giúp tìm liên hệ giữa nghẽn giao thông và độ ổn định học.
 
 def plot_diagnostics(datasets, window, use_events):
     fig, axs = plt.subplots(2, 3, figsize=(16.5, 8.8), constrained_layout=True)
@@ -232,12 +320,32 @@ def plot_diagnostics(datasets, window, use_events):
     fig.suptitle("V15 Diagnostics — Traffic & PPO stability", fontweight="semibold", fontsize=15)
     return fig
 
+#============ KẾT THÚC MODULE 08 - SÁU ĐỒ THỊ CHẨN ĐOÁN GIAO THÔNG / PPO ============
+
+
+
+
+
+
+#====================== MODULE 09 - TÍNH TRUNG BÌNH CUỐI CỬA SỔ ======================
+# Mục đích: Lấy trung bình một đoạn cuối, bỏ qua NaN.
+# Giải thích: Dùng để tổng hợp mức hiệu suất gần cuối run.
 
 def mean_last(arr, window):
     a = np.asarray(arr[-window:], dtype=float)
     a = a[np.isfinite(a)]
     return float(a.mean()) if len(a) else float("nan")
 
+#================= KẾT THÚC MODULE 09 - TÍNH TRUNG BÌNH CUỐI CỬA SỔ =================
+
+
+
+
+
+
+#===================== MODULE 10 - SO SÁNH HIỆU SUẤT THEO SỐ AGV =====================
+# Mục đích: Chỉ vẽ khi có tối thiểu hai fleet size khác nhau.
+# Giải thích: So sánh Target/AGV, JobDone, Block, LiveLock.
 
 def plot_fleet_compare(datasets, window):
     available = [d for d in datasets if d["fleet"] and d["fleet"] > 0]
@@ -282,6 +390,16 @@ def plot_fleet_compare(datasets, window):
              ha="center", va="bottom", fontsize=8, color="dimgray")
     return fig
 
+#================ KẾT THÚC MODULE 10 - SO SÁNH HIỆU SUẤT THEO SỐ AGV ================
+
+
+
+
+
+
+#===================== MODULE 11 - XUẤT THỐNG KÊ TRAINING VÀ CSV =====================
+# Mục đích: Lưu dữ liệu từng episode và tóm tắt về file riêng.
+# Giải thích: Nhấn mạnh số liệu training không thay thế held-out evaluation.
 
 def summary_and_csv(datasets, window, out_dir):
     out_dir = Path(out_dir)
@@ -361,11 +479,21 @@ def summary_and_csv(datasets, window, out_dir):
     report.write_text("\n".join(txt) + "\n", encoding="utf-8")
     return report
 
+#================ KẾT THÚC MODULE 11 - XUẤT THỐNG KÊ TRAINING VÀ CSV ================
+
+
+
+
+
 
 
 # ====================== HELD-OUT EVALUATION ============================
 # Evaluation has one row per SEED, not one row per training episode.
 # Never draw seed order as if it was a training learning curve.
+
+#===================== MODULE 12 - KHAI BÁO CÁC METRIC HELD-OUT =====================
+# Mục đích: Liệt kê trường cần tổng hợp và so sánh ở chế độ đánh giá.
+# Giải thích: Mỗi hàng held-out tương ứng một seed môi trường, không phải bước training.
 
 HELDOUT_KEYS = (
     'jobDone', 'targetReached', 'block', 'liveLock', 'wrongTarget',
@@ -374,6 +502,16 @@ HELDOUT_KEYS = (
     'routing_total_decisions', 'routing_stop_rate', 'selected_mask_violations'
 )
 
+#================= KẾT THÚC MODULE 12 - KHAI BÁO CÁC METRIC HELD-OUT =================
+
+
+
+
+
+
+#================== MODULE 13 - TỰ NHẬN BIẾT TRAINING HAY HELD-OUT ==================
+# Mục đích: Xem cấu trúc JSONL thay vì tin vào tên file.
+# Giải thích: Tránh vẽ nhầm seed như training timestep.
 
 def inspect_log_kind(path: Path):
     """Determine log kind by structured fields, regardless of file name."""
@@ -395,6 +533,16 @@ def inspect_log_kind(path: Path):
             raise ValueError(f'{path}: Not recognized as V15 training or held-out JSONL')
     raise ValueError(f'{path}: Empty JSONL')
 
+#============== KẾT THÚC MODULE 13 - TỰ NHẬN BIẾT TRAINING HAY HELD-OUT ==============
+
+
+
+
+
+
+#=================== MODULE 14 - ĐỌC VÀ KIỂM TRA DỮ LIỆU HELD-OUT ===================
+# Mục đích: Lấy seed, checkpoint, số xe, các metrics và chuẩn hóa dữ liệu.
+# Giải thích: Không trộn các checkpoint/phase không tương thích.
 
 def read_heldout(path: Path):
     path=Path(path).expanduser().resolve()
@@ -460,10 +608,30 @@ def read_heldout(path: Path):
                 metric={k:np.asarray(v,dtype=float) for k,v in values.items()},
                 rows=rows,bad_lines=bad,end_reasons=end_reasons,stop_mode=stop_mode)
 
+#=============== KẾT THÚC MODULE 14 - ĐỌC VÀ KIỂM TRA DỮ LIỆU HELD-OUT ===============
+
+
+
+
+
+
+#========================= MODULE 15 - ĐỊNH DẠNG SỐ THỐNG KÊ =========================
+# Mục đích: Đổi giá trị ra dạng số có n chữ số thập phân.
+# Giải thích: Dữ liệu không hợp lệ được in N/A.
 
 def fmt(value,nd=2):
     return f'{value:.{nd}f}' if math.isfinite(value) else 'N/A'
 
+#==================== KẾT THÚC MODULE 15 - ĐỊNH DẠNG SỐ THỐNG KÊ ====================
+
+
+
+
+
+
+#=================== MODULE 16 - TÍNH TRUNG BÌNH VÀ ĐỘ LỆCH CHUẨN ===================
+# Mục đích: Trả mean, sample standard deviation và số mẫu hợp lệ.
+# Giải thích: Dùng để so sánh độ ổn định JobDone trên các seed.
 
 def mean_sd(arr):
     x=np.asarray(arr,dtype=float)
@@ -471,6 +639,16 @@ def mean_sd(arr):
     return ((float(x.mean()),float(x.std(ddof=1)) if len(x)>1 else 0.,len(x))
             if len(x) else (float('nan'),float('nan'),0))
 
+#=============== KẾT THÚC MODULE 16 - TÍNH TRUNG BÌNH VÀ ĐỘ LỆCH CHUẨN ===============
+
+
+
+
+
+
+#================= MODULE 17 - PHÂN BIỆT NHÃN CHECKPOINT TRÙNG NHAU =================
+# Mục đích: Bổ sung SHA ngắn khi trùng phase/EP.
+# Giải thích: Giúp tránh nhầm hai checkpoint khi so sánh hình.
 
 def dataset_labels(ds):
     """Give distinct labels to same-phase, same-EP runs from different checkpoints."""
@@ -482,6 +660,16 @@ def dataset_labels(ds):
     if len(set(labels))<len(labels):
         for i,d in enumerate(ds,1):d['label']+=f' #{i}'
 
+#============= KẾT THÚC MODULE 17 - PHÂN BIỆT NHÃN CHECKPOINT TRÙNG NHAU =============
+
+
+
+
+
+
+#=================== MODULE 18 - VẼ CỘT TRUNG BÌNH VÀ THANH SAI SỐ ===================
+# Mục đích: Mỗi cột là mean theo seed, error bar là độ lệch chuẩn.
+# Giải thích: Tùy chọn chia chỉ số cho số AGV.
 
 def grouped_bars(ax,ds,key,title,ylabel,per_agv=False):
     vals=[];err=[]
@@ -506,6 +694,16 @@ def grouped_bars(ax,ds,key,title,ylabel,per_agv=False):
     # Do not force a positive y-axis for reward, which may be negative.
     if key!='delivered_reward':ax.set_ylim(bottom=0)
 
+#============== KẾT THÚC MODULE 18 - VẼ CỘT TRUNG BÌNH VÀ THANH SAI SỐ ==============
+
+
+
+
+
+
+#===================== MODULE 19 - TỔNG QUAN SÁU METRIC HELD-OUT =====================
+# Mục đích: Vẽ JobDone, Target/AGV, Block, LiveLock, WrongTarget, Reward.
+# Giải thích: Đây là đánh giá checkpoint cố định, không phải learning curve.
 
 def plot_heldout_overview(ds):
     fig,axes=plt.subplots(2,3,figsize=(16,9),layout='constrained')
@@ -519,6 +717,16 @@ def plot_heldout_overview(ds):
     for ax,(k,title,yl,per) in zip(axes.flat,specs):grouped_bars(ax,ds,k,title,yl,per)
     return fig
 
+#================ KẾT THÚC MODULE 19 - TỔNG QUAN SÁU METRIC HELD-OUT ================
+
+
+
+
+
+
+#=================== MODULE 20 - HIỆU SUẤT THEO TỪNG SEED ĐÁNH GIÁ ===================
+# Mục đích: Vẽ kết quả thật theo seed cho các checkpoint.
+# Giải thích: Các seed trùng nhau có thể dùng để so sánh có ghép cặp.
 
 def plot_heldout_seedwise(ds):
     """Actual seed values; shared x keys are NOT a learning-curve x-axis."""
@@ -545,6 +753,16 @@ def plot_heldout_seedwise(ds):
         else:ax.text(.5,.5,'Unavailable',transform=ax.transAxes,ha='center')
     return fig
 
+#============== KẾT THÚC MODULE 20 - HIỆU SUẤT THEO TỪNG SEED ĐÁNH GIÁ ==============
+
+
+
+
+
+
+#====================== MODULE 21 - PHÂN TÍCH STOP CỦA ROUTING ======================
+# Mục đích: So sánh STOP rate và JobDone, các bộ đếm STOP có khả năng di chuyển.
+# Giải thích: Không tự quy STOP là nguyên nhân gây hiệu suất thấp.
 
 def plot_heldout_routing(ds):
     fig,axs=plt.subplots(1,3,figsize=(16.6,5.5),layout='constrained')
@@ -583,6 +801,16 @@ def plot_heldout_routing(ds):
     else:ax.text(.5,.5,'Diagnostics unavailable',transform=ax.transAxes,ha='center')
     return fig
 
+#================== KẾT THÚC MODULE 21 - PHÂN TÍCH STOP CỦA ROUTING ==================
+
+
+
+
+
+
+#==================== MODULE 22 - TÌM CÁC SEED PHÙ HỢP ĐỂ SO SÁNH ====================
+# Mục đích: Chỉ ghép cặp nếu phase, số AGV, thời gian và seed tương ứng.
+# Giải thích: Tránh suy luận từ hai tập seed khác nhau.
 
 def matched_seed_pairs(ds):
     """Only compare policies in the same phase, fleet, horizon, and seed IDs."""
@@ -596,6 +824,16 @@ def matched_seed_pairs(ds):
     ia={int(s):i for i,s in enumerate(a['seed'])};ib={int(s):i for i,s in enumerate(b['seed'])}
     return [(s,ia[s],ib[s]) for s in overlap]
 
+#=============== KẾT THÚC MODULE 22 - TÌM CÁC SEED PHÙ HỢP ĐỂ SO SÁNH ===============
+
+
+
+
+
+
+#=============== MODULE 23 - VẼ CHÊNH LỆCH CHỈ SỐ GIỮA HAI CHECKPOINT ===============
+# Mục đích: Chênh lệch đo trên cùng seed: second - first.
+# Giải thích: Thể hiện biến thiên JobDone, Block, Target, STOP rate.
 
 def plot_heldout_paired(ds):
     matched=matched_seed_pairs(ds)
@@ -622,6 +860,16 @@ def plot_heldout_paired(ds):
         ax.set_xlabel('Matched seed');ax.set_ylabel(ytitle);ax.grid(axis='y',alpha=.3)
     return fig
 
+#=========== KẾT THÚC MODULE 23 - VẼ CHÊNH LỆCH CHỈ SỐ GIỮA HAI CHECKPOINT ===========
+
+
+
+
+
+
+#====================== MODULE 24 - SO SÁNH THEO QUY MÔ ĐỘI AGV ======================
+# Mục đích: Hiệu suất trung bình/độ lệch chuẩn theo số AGV.
+# Giải thích: Chỉ vẽ nếu có nhiều fleet size.
 
 def plot_heldout_fleet(ds):
     if len({d['fleet'] for d in ds})<2:return None
@@ -642,6 +890,16 @@ def plot_heldout_fleet(ds):
         if ax.has_data():ax.legend(fontsize=8)
     return fig
 
+#================= KẾT THÚC MODULE 24 - SO SÁNH THEO QUY MÔ ĐỘI AGV =================
+
+
+
+
+
+
+#===================== MODULE 25 - XUẤT BÁO CÁO HELD-OUT VÀ CSV =====================
+# Mục đích: Ghi thống kê mỗi seed và tổng hợp checkpoint vào báo cáo riêng.
+# Giải thích: Không khẳng định đã tái lập hoàn toàn kết quả paper Tobias.
 
 def summarize_heldout(ds,out):
     report=['V15 HELD-OUT EVALUATION — LOCAL REPORT',
@@ -697,13 +955,31 @@ def summarize_heldout(ds,out):
     path.write_text('\n'.join(report)+'\n',encoding='utf-8')
     return path
 
+#================= KẾT THÚC MODULE 25 - XUẤT BÁO CÁO HELD-OUT VÀ CSV =================
+
+
+
+
+
+
+#================== MODULE 26 - ĐIỀU PHỐI TẠO HÌNH VÀ FILE BÁO CÁO ==================
+# Mục đích: Phân loại các input training/held-out, gọi đúng bộ hàm vẽ.
+# Giải thích: Tạo thư mục kết quả mới để tránh ghi đè biểu đồ cũ.
 
 def generate(paths, window=10, use_events=False, out_dir=None):
     if window < 1:raise ValueError('Smooth/window must be >= 1')
+
+    #===================== PHẦN GENERATE-01 - PHÂN LOẠI FILE ĐẦU VÀO =====================
+    # Không trộn learning curve với held-out checkpoint.
+
     inputs=[Path(x).expanduser().resolve() for x in paths]
     if not inputs:raise ValueError('Chưa chọn file JSONL')
     if len({str(p) for p in inputs})!=len(inputs):
         raise ValueError('Cùng một file xuất hiện hai lần; hãy xóa dòng trùng.')
+
+    #===================== PHẦN GENERATE-02 - ĐỌC DỮ LIỆU THEO LOẠI =====================
+    # Chọn read_heldout hoặc read_log.
+
     for p in inputs:
         if not p.is_file():raise FileNotFoundError(f'File not found: {p}')
     training=[];heldout=[]
@@ -748,11 +1024,25 @@ def generate(paths, window=10, use_events=False, out_dir=None):
         fig.savefig(folder/f'figure_{n:02d}_{slug}.svg',bbox_inches='tight')
     return folder,figures,reports
 
+#============== KẾT THÚC MODULE 26 - ĐIỀU PHỐI TẠO HÌNH VÀ FILE BÁO CÁO ==============
+
+
+
+
+
+
+#========================= MODULE 27 - TẠO GIAO DIỆN TKINTER =========================
+# Mục đích: Khung nhập đường dẫn, chọn file, hiển thị hình và log trạng thái.
+# Giải thích: Bọc các thao tác người dùng trong callback giao diện.
 
 def run_gui():
     import tkinter as tk
     from tkinter import filedialog,messagebox,ttk
     from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg,NavigationToolbar2Tk
+
+    #========================= PHẦN RUN_GUI-01 - KHỞI TẠO CỬA SỔ =========================
+    # Tạo nút chọn file, các ô nhập và thanh trạng thái.
+
     root=tk.Tk();root.title('V15 Graph Plotter — Training + Held-out')
     root.geometry('1000x570');root.minsize(820,460)
     frame=ttk.Frame(root,padding=16);frame.pack(fill='both',expand=True)
@@ -814,6 +1104,16 @@ def run_gui():
               foreground='#666666',wraplength=950).pack(anchor='w',pady=(8,0))
     root.mainloop()
 
+#==================== KẾT THÚC MODULE 27 - TẠO GIAO DIỆN TKINTER ====================
+
+
+
+
+
+
+#=================== MODULE 28 - CHẾ ĐỘ DÒNG LỆNH HOẶC CỬA SỔ GUI ===================
+# Mục đích: Nếu có --input/--no-gui thì chạy headless, nếu không mở cửa sổ.
+# Giải thích: Chỉ đọc log, không đụng checkpoint/training.
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
@@ -831,5 +1131,21 @@ def main():
         for report in reports:print(f'Báo cáo: {report}')
     else:run_gui()
 
+#=============== KẾT THÚC MODULE 28 - CHẾ ĐỘ DÒNG LỆNH HOẶC CỬA SỔ GUI ===============
+
+
+
+
+
+
+#========================= MODULE 29 - ĐIỂM VÀO GUI/HEADLESS =========================
+# Mục đích: Chỉ gọi main() khi chạy file trực tiếp.
+# Giải thích: Cho phép import các hàm vẽ vào script khác.
 
 if __name__=='__main__':main()
+
+#==================== KẾT THÚC MODULE 29 - ĐIỂM VÀO GUI/HEADLESS ====================
+
+
+
+

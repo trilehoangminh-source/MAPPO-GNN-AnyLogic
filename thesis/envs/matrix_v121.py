@@ -1,3 +1,15 @@
+#============== GIẢI THÍCH FILE: MÔI TRƯỜNG MATRIX VÀ GLOBAL STATE CTDE ===============
+# Tạo agent AGV/Dispatch, quản lý alias, nạp AnyLogic và xây global state cho Centralized Critic.
+# BẢN ĐỌC HIỂU: chỉ bổ sung comment/khoảng trắng; KHÔNG thay đổi câu lệnh gốc.
+# Lưu ý: comment vẫn làm thay đổi SHA256 của file (cần init run mới nếu dùng train).
+#================================ HẾT GIỚI THIỆU FILE =================================
+
+
+
+
+
+#========================= MODULE 01 - CÁC THƯ VIỆN / IMPORT ==========================
+# import/from trong Python tương tự #include ở C, nhưng có hệ thống module và package.
 import random
 from .alpyne121_bridge import AlpyneClient
 from .base_alpyne_zoo_v121 import ZooAgent, BaseAlpyneZoo
@@ -17,10 +29,20 @@ from .behaviors_v121 import (
 from ..utils.build_config_v121 import build_config
 from PIL import ImageDraw, Image
 import gymnasium.spaces
+#===================== KẾT THÚC MODULE 01 - CÁC THƯ VIỆN / IMPORT =====================
 
 
+
+
+#=============================== MODULE 02 - LỚP MATRIX ===============================
+# Môi trường Matrix: AnyLogic simulator, actor observations, global state CTDE và alias AGV.
 class Matrix(BaseAlpyneZoo):
 
+
+
+    #============================ MODULE CON 01 - __INIT__ ============================
+    # Mục đích: Khởi tạo thuộc tính, tham số và bộ nhớ cho đối tượng.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def __init__(
         self,
         model_path: str = None,
@@ -97,8 +119,15 @@ class Matrix(BaseAlpyneZoo):
         super().__init__(self.object_agents)
         if not (self.pseudo_dispatcher or self.dispatching_policy is not None) or not (self.pseudo_routing or self.routing_policy is not None):
             self.reset()
+    #======================= KẾT THÚC MODULE CON 01 - __INIT__ ========================
+
 
     #Nó nhận Observation từ AnyLogic, nhìn vào caller để xác định decision request này thuộc về routing agent hay dispatching agent nào, đồng thời xử lý trường hợp Agent bị thay thế bằng alias.
+
+
+    #====================== MODULE CON 02 - _AGENT_SELECTION_FN =======================
+    # Mục đích: Hàm nội bộ agent selection fn; được gọi bởi các hàm cấp cao hơn.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def _agent_selection_fn(self, alpyne_obs):
         if (self.pseudo_routing or self.routing_policy is not None) and (self.pseudo_dispatcher or self.dispatching_policy is not None) and self._terminal_alternative(alpyne_obs):
             return "dummy"
@@ -108,7 +137,14 @@ class Matrix(BaseAlpyneZoo):
             return self.dispatching_aliases[str(alpyne_obs.caller)]
         else:
             return str(alpyne_obs.caller)
+    #================== KẾT THÚC MODULE CON 02 - _AGENT_SELECTION_FN ==================
 
+
+
+
+    #============================== MODULE CON 03 - STEP ==============================
+    # Mục đích: Gửi action và chuyển mô phỏng tới sự kiện tiếp theo.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def step(self, action):
         self.stepcounter += 1
         if self.agent_selection != "dummy" and int(self.agent_selection) < 1000 and self.routing_agent_death:
@@ -116,7 +152,14 @@ class Matrix(BaseAlpyneZoo):
         elif self.agent_selection != "dummy" and int(self.agent_selection) >= 1000 and self.dispatching_agent_death:
             self.agent_selection = self.dispatching_aliases_rev[self.agent_selection]
         return super().step(action)
+    #========================= KẾT THÚC MODULE CON 03 - STEP ==========================
 
+
+
+
+    #=========================== MODULE CON 04 - GET_AGENTS ===========================
+    # Mục đích: Truy xuất agents từ trạng thái/dữ liệu đã lưu.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def get_agents(self):
         agents = []
         self.agent_hive = (
@@ -280,19 +323,40 @@ class Matrix(BaseAlpyneZoo):
                         )
                     )
         return agents
+    #====================== KẾT THÚC MODULE CON 04 - GET_AGENTS =======================
 
+
+
+
+    #=========================== MODULE CON 05 - GET_CONFIG ===========================
+    # Mục đích: Trả cấu hình thí nghiệm/mô phỏng cho connector.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def get_config(self, config_args):
         conf = build_config(config_args, self.fleetsize)
         conf.obs_include_nodes_in_reach = True
         conf.coordinates = True
         return conf
+    #====================== KẾT THÚC MODULE CON 05 - GET_CONFIG =======================
 
+
+
+
+    #============================== MODULE CON 06 - SEED ==============================
+    # Mục đích: Xử lý seed theo logic của lớp Matrix.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def seed(self, seed: int = None):
         if seed is not None:
             self.config.seed = seed
         else:
             self.config.seed = random.randint(0, 10000)
+    #========================= KẾT THÚC MODULE CON 06 - SEED ==========================
 
+
+
+
+    #============================= MODULE CON 07 - _START =============================
+    # Mục đích: Hàm nội bộ start; được gọi bởi các hàm cấp cao hơn.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def _start(self):
         if self.client is None:
             port = self.startport
@@ -301,7 +365,14 @@ class Matrix(BaseAlpyneZoo):
         self.run = self.client.create_reinforcement_learning(self.config)
         self.started = True
         super()._start(self.run)
+    #======================== KẾT THÚC MODULE CON 07 - _START =========================
 
+
+
+
+    #============================= MODULE CON 08 - RESET ==============================
+    # Mục đích: Đưa trạng thái hoạt động về đầu episode/thời điểm khởi tạo.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def reset(
         self,
         config=None,
@@ -341,13 +412,34 @@ class Matrix(BaseAlpyneZoo):
         #     return self.observation_space("dummy").sample(), 0, False, {}
         else:
             return super().reset(self.config, seed, return_info, options, dont_collect = options.get("dont_collect", False))
+    #========================= KẾT THÚC MODULE CON 08 - RESET =========================
 
+
+
+
+    #========================== MODULE CON 09 - ACTION_SPACE ==========================
+    # Mục đích: Xử lý action space theo logic của lớp Matrix.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def action_space(self, agent) -> gymnasium.spaces.Space:
         return super().action_space(agent)
+    #===================== KẾT THÚC MODULE CON 09 - ACTION_SPACE ======================
 
+
+
+
+    #======================= MODULE CON 10 - OBSERVATION_SPACE ========================
+    # Mục đích: Xử lý observation space theo logic của lớp Matrix.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def observation_space(self, agent: str) -> gymnasium.spaces.Space:
         return super().observation_space(agent)
+    #=================== KẾT THÚC MODULE CON 10 - OBSERVATION_SPACE ===================
 
+
+
+
+    #======================== MODULE CON 11 - GET_MAPPO_STATE =========================
+    # Mục đích: Trả bản sao trạng thái toàn cục (AGV + station + ego) cho Centralized Critic.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def get_mappo_state(self):
         """Physical AGV + station state for the centralized critic.
 
@@ -362,15 +454,36 @@ class Matrix(BaseAlpyneZoo):
         state = self._mappo_current_state
         return {key: value.copy() if hasattr(value, "copy") else value
                 for key, value in state.items()}
+    #==================== KẾT THÚC MODULE CON 11 - GET_MAPPO_STATE ====================
 
+
+
+
+    #==================== MODULE CON 12 - GET_MAPPO_STATION_SOURCE ====================
+    # Mục đích: Truy xuất mappo station source từ trạng thái/dữ liệu đã lưu.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def get_mappo_station_source(self):
         """Diagnostic only: fresh_routing, fresh_dispatch, cached, missing."""
         return getattr(self, "_mappo_station_source", "missing")
+    #=============== KẾT THÚC MODULE CON 12 - GET_MAPPO_STATION_SOURCE ================
 
+
+
+
+    #========================= MODULE CON 13 - GET_MAPPO_TIME =========================
+    # Mục đích: Đọc thời gian mô phỏng tại sự kiện hiện tại.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def get_mappo_time(self):
         """AnyLogic model time, saved at the most recent decision event."""
         return float(getattr(self, "_mappo_current_time", 0.0))
+    #==================== KẾT THÚC MODULE CON 13 - GET_MAPPO_TIME =====================
 
+
+
+
+    #====================== MODULE CON 14 - _CAPTURE_MAPPO_STATE ======================
+    # Mục đích: Chụp dữ liệu global state từ packet AnyLogic; trạm có thể fresh/cached theo phiên bản Java export.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def _capture_mappo_state(self, alpyne_obs):
         """Capture AGV rows and registered Station rows when provided.
 
@@ -382,6 +495,9 @@ class Matrix(BaseAlpyneZoo):
         """
         import numpy as np
 
+
+        #======================= MỤC NHỎ - ĐỌC PACKET ANYLOGIC ========================
+        # Nhận mảng observation của controller; kiểm tra shape.
         raw = np.asarray(alpyne_obs.obs, dtype=np.float32)
         if raw.ndim != 2:
             raise ValueError(
@@ -405,6 +521,9 @@ class Matrix(BaseAlpyneZoo):
                 f"registered_stations={n_station_observed}"
             )
 
+
+        #====================== MỤC NHỎ - ĐỊNH DANH AGV PHYSICAL ======================
+        # Phân biệt routing/dispatch bằng caller và chỉ số ego.
         caller = int(alpyne_obs.caller)
         ego = caller % 1000
         if not 0 <= ego < n_agv:
@@ -466,10 +585,20 @@ class Matrix(BaseAlpyneZoo):
             self._mappo_current_time = float(self.run.get_state()[1]["model_time"])
         except (AttributeError, KeyError, IndexError, TypeError):
             self._mappo_current_time = 0.0
+    #================= KẾT THÚC MODULE CON 14 - _CAPTURE_MAPPO_STATE ==================
 
+
+
+
+    #======================= MODULE CON 15 - _SAVE_OBSERVATION ========================
+    # Mục đích: Lưu observation, cập nhật global state và quản lý alias khi AGV kết thúc vòng đời.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def _save_observation(self, alpyne_obs, agent, obs, reward, done, info):
         # The raw packet includes ALL station rows after the corrected Java
         # export. Save them for the CENTRAL critic before changing actor obs.
+
+        #=================== MỤC NHỎ - LƯU GLOBAL STATE CHO CRITIC ====================
+        # Critic lấy thông tin toàn cục trước khi actor nhận observation.
         self._capture_mappo_state(alpyne_obs)
         # Keep the original Routing ACTOR input exactly as before: in Tobias's
         # baseline, Routing stat observations were zero. Its GNN extractor uses
@@ -486,6 +615,9 @@ class Matrix(BaseAlpyneZoo):
                 for title, value in zip(alpyne_obs.statTitles, alpyne_obs.statValues)
             }
             self.statistics["fleetsize" ] = self.fleetsize
+
+        #==================== MỤC NHỎ - KIỂM TRA KẾT THÚC LIFETIME ====================
+        # Nếu AGV rời hệ thống/cán đích, cần quản lý alias mới.
         agent_died = ("in_system" in info.keys() and not info["in_system"]) or (
             "at_target" in info.keys() and info["at_target"]
         )
@@ -575,7 +707,14 @@ class Matrix(BaseAlpyneZoo):
                 )
             self.dispatching_hwm += 1
         return super()._save_observation(alpyne_obs, agent, obs, reward, done, info)
+    #=================== KẾT THÚC MODULE CON 15 - _SAVE_OBSERVATION ===================
 
+
+
+
+    #===================== MODULE CON 16 - _TERMINAL_ALTERNATIVE ======================
+    # Mục đích: Hàm nội bộ terminal alternative; được gọi bởi các hàm cấp cao hơn.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def _terminal_alternative(self, observation) -> bool:
         """Optional method to add *extra* terminating conditions"""
         terminal_max_steps = (
@@ -590,10 +729,24 @@ class Matrix(BaseAlpyneZoo):
         if time < self.warmup_time:
             self.warmup_statistics = self.statistics.copy()
         return terminal_max_steps or terminal_max_seconds
+    #================= KẾT THÚC MODULE CON 16 - _TERMINAL_ALTERNATIVE =================
 
+
+
+
+    #============================= MODULE CON 17 - CLOSE ==============================
+    # Mục đích: Xử lý close theo logic của lớp Matrix.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def close(self):
         self.sim.stop()
+    #========================= KẾT THÚC MODULE CON 17 - CLOSE =========================
 
+
+
+
+    #============================= MODULE CON 18 - RENDER =============================
+    # Mục đích: Xử lý render theo logic của lớp Matrix.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def render(self, dict_mode=False):
         obs, _, _, _ = self.last()
         obs_dict = self.agent_behaviors[self.agent_selection]._state_dict(obs)
@@ -633,3 +786,8 @@ class Matrix(BaseAlpyneZoo):
         del draw
 
         return im
+    #======================== KẾT THÚC MODULE CON 18 - RENDER =========================
+
+#========================== KẾT THÚC MODULE 02 - LỚP MATRIX ===========================
+
+

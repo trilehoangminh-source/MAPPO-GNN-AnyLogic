@@ -1,18 +1,38 @@
+#======================== GIẢI THÍCH FILE: CONNECTOR MAPPO V7 =========================
+# Hàm khởi tạo model và trả action cho phiên bản V7.
+# BẢN ĐỌC HIỂU: chỉ bổ sung comment/khoảng trắng; KHÔNG thay đổi câu lệnh gốc.
+# Lưu ý: comment vẫn làm thay đổi SHA256 của file (cần init run mới nếu dùng train).
+#================================ HẾT GIỚI THIỆU FILE =================================
+
+
 """AnyLogic Desktop Pypeline entrypoint: get_config + get_action.
 
 Experimental integration, fail-closed. Runs from the SAME Python 3.11 virtualenv
 as the V7 PyTorch training source. Does not use RLlib or launch Alpyne server.
 """
+
+
+
+#========================= MODULE 01 - CÁC THƯ VIỆN / IMPORT ==========================
+# import/from trong Python tương tự #include ở C, nhưng có hệ thống module và package.
 from __future__ import annotations
 
 import os
 from pathlib import Path
 from types import SimpleNamespace
 
+
+
+
+#======================= MODULE 02 - HẰNG SỐ VÀ CẤU HÌNH CHUNG ========================
+# Các biến module được đọc bởi các hàm/lớp bên dưới; gần với biến toàn cục trong C.
 os.environ["MAPPO_DISPATCH_MASK_MODE"] = "operation_first"
 
 from thesis.envs.alpyne121_bridge import Observation
 from .v7_inference import verify_checkpoint, make_inference_policy, greedy_action
+#===================== KẾT THÚC MODULE 01 - CÁC THƯ VIỆN / IMPORT =====================
+
+
 
 ROOT = Path(__file__).resolve().parents[2]
 CKPT_DIR = ROOT / "mappo_runs" / "V7_brain30_seed43"
@@ -24,8 +44,13 @@ _env = None
 _model = None
 _collector = None
 _call_count = 0
+#=================== KẾT THÚC MODULE 02 - HẰNG SỐ VÀ CẤU HÌNH CHUNG ===================
 
 
+
+
+#==================== MODULE 03 - HÀM _MAKE_MODEL_FREE_ENVIRONMENT ====================
+# Dựng môi trường không cần checkpoint để kiểm tra dữ liệu và topology.
 def _make_model_free_environment():
     """Create Tobias observation/behavior converter without launching another AnyLogic."""
     from thesis.envs.matrix_v121 import Matrix
@@ -51,22 +76,37 @@ def _make_model_free_environment():
     env._mappo_station_cache = None
     env._mappo_station_source = 'missing'
     return env
+#=============== KẾT THÚC MODULE 03 - HÀM _MAKE_MODEL_FREE_ENVIRONMENT ================
 
 
+
+
+#=========================== MODULE 04 - HÀM _ENV_INSTANCE ============================
+# Giữ hoặc truy xuất instance môi trường được cache bởi connector.
 def _env_instance():
     global _env
     if _env is None:
         _env = _make_model_free_environment()
     return _env
+#======================= KẾT THÚC MODULE 04 - HÀM _ENV_INSTANCE =======================
 
 
+
+
+#============================= MODULE 05 - HÀM GET_CONFIG =============================
+# Trả cấu hình thí nghiệm/mô phỏng cho connector.
 def get_config(key: str):
     conf = _env_instance().config
     if key in conf.names():
         return conf.values()[conf.names().index(key)]
     raise KeyError(f"Missing Pypeline model configuration: {key}")
+#======================== KẾT THÚC MODULE 05 - HÀM GET_CONFIG =========================
 
 
+
+
+#=========================== MODULE 06 - HÀM _ENSURE_MODEL ============================
+# Nạp/khởi tạo checkpoint phù hợp nếu model chưa sẵn sàng.
 def _ensure_model(env):
     global _model, _collector
     if _model is not None:
@@ -78,8 +118,13 @@ def _ensure_model(env):
         routing_guide_strength=float(_config['final_used_guide_strength']),
     )
     print('[V7 DESKTOP] Loaded trained checkpoint and verified graph fingerprint.',flush=True)
+#======================= KẾT THÚC MODULE 06 - HÀM _ENSURE_MODEL =======================
 
 
+
+
+#============================= MODULE 07 - HÀM GET_ACTION =============================
+# Nhận observation và trả action tương thích connector của module.
 def get_action(observation, caller, n_nodes, context, statTitles, statValues, time):
     global _call_count
     env = _env_instance()
@@ -124,3 +169,6 @@ def get_action(observation, caller, n_nodes, context, statTitles, statValues, ti
     if _call_count <= 15 or _call_count % 300 == 0:
         print(f'[V7 DESKTOP] caller={caller} role={role} action={action} count={_call_count}',flush=True)
     return java_text
+#======================== KẾT THÚC MODULE 07 - HÀM GET_ACTION =========================
+
+

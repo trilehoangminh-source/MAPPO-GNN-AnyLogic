@@ -1,3 +1,10 @@
+#============== GIẢI THÍCH FILE: PPO FULL-ROLLOUT GRADIENT ACCUMULATION ===============
+# Tính gradient theo từng microbatch nhưng chỉ cập nhật Adam sau khi cộng đủ gradient của cả rollout.
+# BẢN ĐỌC HIỂU: chỉ bổ sung comment/khoảng trắng; KHÔNG thay đổi câu lệnh gốc.
+# Lưu ý: comment vẫn làm thay đổi SHA256 của file (cần init run mới nếu dùng train).
+#================================ HẾT GIỚI THIỆU FILE =================================
+
+
 """Full-rollout PPO with VRAM-bounded gradient accumulation for V15.
 
 One effective minibatch per role per PPO epoch. Microbatches are a memory
@@ -5,6 +12,11 @@ implementation detail: global advantage normalization, one ValueNorm update,
 one weighted gradient sum, one gradient clipping and one optimizer step per epoch.
 No change to the original MAPPO optimizer or V7 train function.
 """
+
+
+
+#========================= MODULE 01 - CÁC THƯ VIỆN / IMPORT ==========================
+# import/from trong Python tương tự #include ở C, nhưng có hệ thống module và package.
 from __future__ import annotations
 
 from collections import defaultdict
@@ -15,8 +27,13 @@ import torch
 from torch import nn
 
 from thesis.mappo.mappo_stability_v7 import make_gae_records, critic_loss
+#===================== KẾT THÚC MODULE 01 - CÁC THƯ VIỆN / IMPORT =====================
 
 
+
+
+#========================= MODULE 02 - HÀM ENABLE_FULLROLLOUT =========================
+# Gắn hàm train full-rollout gradient accumulation cho model.
 def enable_fullrollout(model, microbatch_size: int = 512):
     """Replace only this model instance's V7 training method, after enable_v7()."""
     if not isinstance(microbatch_size, int) or microbatch_size < 1:
@@ -33,17 +50,28 @@ def enable_fullrollout(model, microbatch_size: int = 512):
     return {'optimizer_mode': 'full_rollout_gradient_accumulation',
             'effective_minibatches_per_epoch': 1,
             'microbatch_size': microbatch_size}
+#==================== KẾT THÚC MODULE 02 - HÀM ENABLE_FULLROLLOUT =====================
 
 
+
+
+#========================= MODULE 03 - HÀM TRAIN_FULLROLLOUT ==========================
+# Tích lũy gradient nhiều microbatch để giữ nghĩa một full rollout trên GPU ít VRAM.
 def train_fullrollout(self, trajectories):
     from thesis.mappo import algorithm as algo
 
     cfg = self.cfg
     opts = self._v7_options
     microbatch_size = int(self._fullrollout_microbatch_size)
+
+    #=========================== MỤC NHỎ - GAE VÀ NHÓM ROLE ===========================
+    # Tính advantage/return trước khi cập nhật mạng.
     grouped = make_gae_records(trajectories, cfg.gamma, cfg.gae_lambda,
                                opts.time_unit_seconds)
     reports = {}
+
+    #=========================== MỤC NHỎ - TRAIN TỪNG ROLE ============================
+    # Tách Routing/Dispatch Front/Dispatch Rear và tính loss độc lập.
     for role, items in grouped.items():
         if role not in self.roles:
             raise KeyError('Unknown role in trajectory: ' + str(role))
@@ -67,6 +95,9 @@ def train_fullrollout(self, trajectories):
                 raise RuntimeError('Rollout includes an action forbidden by stored action mask')
 
         # Both statistics are computed on the FULL rollout, never a microbatch.
+
+        #========================== MỤC NHỎ - NORMALIZATION ===========================
+        # Chuẩn hóa advantage, return và giá trị Critic theo trạng thái ValueNorm.
         if cfg.normalize_advantage and len(advantage) > 1:
             advantage = (advantage - advantage.mean()) / advantage.std(unbiased=False).clamp(min=1e-6)
         if cfg.value_normalization:
@@ -96,6 +127,9 @@ def train_fullrollout(self, trajectories):
         microbatches_processed = 0
         early_stopped = False
         last_checked_kl = float('nan')
+
+        #======================== MỤC NHỎ - VÒNG LẶP PPO EPOCH ========================
+        # Mỗi epoch xem lại toàn bộ rollout với microbatch nhỏ.
         for epoch in range(cfg.epochs):
             # A single shuffle per PPO epoch; no optimizer step within the loop.
             perm = torch.randperm(n, device=self.device)
@@ -152,7 +186,13 @@ def train_fullrollout(self, trajectories):
             c_norm = nn.utils.clip_grad_norm_(net.critic.parameters(), cfg.max_grad_norm)
             if not (torch.isfinite(a_norm) and torch.isfinite(c_norm)):
                 raise FloatingPointError('Nonfinite full-rollout gradient norm')
+
+            #======================== MỤC NHỎ - CẬP NHẬT ACTOR ========================
+            # Chỉ gọi Adam.step sau khi đã tích lũy gradient của đủ các microbatch.
             net.actor_optimizer.step()
+
+            #======================= MỤC NHỎ - CẬP NHẬT CRITIC ========================
+            # Critic cũng cập nhật theo gradient đã tích lũy.
             net.critic_optimizer.step()
             epoch_sums['actor_grad_norm'] = float(a_norm)
             epoch_sums['critic_grad_norm'] = float(c_norm)
@@ -174,3 +214,6 @@ def train_fullrollout(self, trajectories):
                       last_checked_full_rollout_kl=last_checked_kl)
         reports[role] = report
     return reports
+#===================== KẾT THÚC MODULE 03 - HÀM TRAIN_FULLROLLOUT =====================
+
+

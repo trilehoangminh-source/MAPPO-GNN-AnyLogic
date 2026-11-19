@@ -1,9 +1,38 @@
+#==================== GIẢI THÍCH FILE: DỮ LIỆU CÔNG ĐOẠN SẢN XUẤT =====================
+# Quy tắc sản phẩm, các công đoạn GEO/processing và trạng thái nhiệm vụ dùng trong Dispatch.
+# BẢN ĐỌC HIỂU: chỉ bổ sung comment/khoảng trắng; KHÔNG thay đổi câu lệnh gốc.
+# Lưu ý: comment vẫn làm thay đổi SHA256 của file (cần init run mới nếu dùng train).
+#================================ HẾT GIỚI THIỆU FILE =================================
+
+
+
+
+
+#============================ MODULE 01 - LỚP PARTVARIANT =============================
+# Đóng gói dữ liệu và phương thức xử lý của lớp PartVariant.
 class PartVariant:
+
+
+    #============================ MODULE CON 01 - __INIT__ ============================
+    # Mục đích: Khởi tạo thuộc tính, tham số và bộ nhớ cho đối tượng.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def __init__(self) -> None:
         pass
+    #======================= KẾT THÚC MODULE CON 01 - __INIT__ ========================
+
+#======================== KẾT THÚC MODULE 01 - LỚP PARTVARIANT ========================
 
 
+
+
+#============================= MODULE 02 - LỚP MATRIXPART =============================
+# Biểu diễn công đoạn/hành trình sản xuất và điều kiện trạm hợp lệ.
 class MatrixPart(PartVariant):
+
+
+    #============================ MODULE CON 01 - __INIT__ ============================
+    # Mục đích: Khởi tạo thuộc tính, tham số và bộ nhớ cho đối tượng.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def __init__(self) -> None:
         super().__init__()
         #Verfahren, Anzahl, nach, vor, NacharbeitVor
@@ -103,7 +132,14 @@ class MatrixPart(PartVariant):
             "fls_2":34,
             "rework":39,
             }
+    #======================= KẾT THÚC MODULE CON 01 - __INIT__ ========================
 
+
+
+
+    #=========================== MODULE CON 02 - TRANSLATE ============================
+    # Mục đích: Xử lý translate theo logic của lớp MatrixPart.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def translate(self, part_obs):
         before_geo = int(part_obs["state"][-1])
         after_geo = before_geo -1
@@ -125,7 +161,9 @@ class MatrixPart(PartVariant):
             "amount": respots_per_proc,         #mỗi loại công đoạn còn bao nhiêu
             "rework": rework                    #có phải làm lại không
         }
+    #======================= KẾT THÚC MODULE CON 02 - TRANSLATE =======================
 
+#======================== KẾT THÚC MODULE 02 - LỚP MATRIXPART =========================
 
 
 

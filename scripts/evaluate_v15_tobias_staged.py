@@ -3,6 +3,10 @@
 Evaluates any completed stage, using its actual trained + frozen controllers.
 For joint20 this evaluates all learned policies. Never overwrites checkpoints.
 """
+#==================== MODULE 00 - NẠP THƯ VIỆN VÀ ĐỊNH VỊ THƯ MỤC ====================
+# Mục đích: Liên kết evaluator với code V15 và xác định thư mục gốc thesis.
+# Giải thích: Đây là chương trình held-out: chọn action greedy, không thực hiện PPO update.
+
 from __future__ import annotations
 import argparse
 import json
@@ -18,7 +22,21 @@ from train_v15_tobias_staged import (_read,_digest,_checkpoint,PHASE_ORDER,
                                      preflight,parse_args)
 
 
+
+#=============== KẾT THÚC MODULE 00 - NẠP THƯ VIỆN VÀ ĐỊNH VỊ THƯ MỤC ===============
+
+
+
+
+#====================== MODULE 01 - ĐÁNH GIÁ HELD-OUT THEO SEED ======================
+# Mục đích: Đọc checkpoint và kiểm tra blueprint, mã nguồn, thiết bị khớp run training.
+# Giải thích: Cho AnyLogic chạy từng seed độc lập 3.600 s, không gradient; ghi JSONL.
+
 def main(argv=None):
+
+    #========================= PHẦN MAIN-01 - THAM SỐ EVALUATION =========================
+    # Phase, số seed, cổng AnyLogic, thiết bị và đường dẫn run.
+
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--phase',choices=PHASE_ORDER,default='joint20')
     p.add_argument('--blueprint',type=Path,default=None)
@@ -33,6 +51,10 @@ def main(argv=None):
     args=p.parse_args(argv)
     if args.seeds<1 or args.seeds>100 or not 1<=args.port<=65535:
         p.error('Invalid seeds/port')
+
+    #================== PHẦN MAIN-02 - XÁC MINH CHECKPOINT VÀ BLUEPRINT ==================
+    # Đối chiếu SHA256, thiết bị và fingerprint source.
+
     stage_dir=args.output_root.resolve()/args.phase
     meta=_read(stage_dir/'experiment.json')
     state=_read(stage_dir/'state.json')
@@ -58,6 +80,10 @@ def main(argv=None):
                       ('alpyne_bridge',ROOT/'thesis/envs/alpyne121_bridge.py')]:
         if _digest(path)!=meta['fingerprints'][name]:
             raise RuntimeError('Changed code since training: '+name)
+
+    #====================== PHẦN MAIN-03 - KHÔNG GHI ĐÈ KẾT QUẢ CŨ ======================
+    # Nếu tồn tại file thì phải --resume và kiểm tra checkpoint SHA.
+
     result=stage_dir/f'heldout_{args.phase}_{args.seeds}seeds_3600s.jsonl'
     seeds=list(range(args.first_seed,args.first_seed+args.seeds))
     rows=[]
@@ -71,6 +97,10 @@ def main(argv=None):
         if any(int(v['seed']) not in seeds for v in rows):
             raise RuntimeError('Existing evaluation contains seed outside requested range')
     todo=[n for n in seeds if n not in {int(row['seed']) for row in rows}]
+
+    #========================= PHẦN MAIN-04 - CHỈ KIỂM TRA LỆNH =========================
+    # In các seed chưa chạy, không tạo environment.
+
     if args.dry_run:
         print('[V15 EVAL DRY RUN OK] phase',args.phase,'EP',state['last_episode'],
               'checkpoint=',checkpoint,'pending seeds=',todo)
@@ -89,12 +119,20 @@ def main(argv=None):
     random.seed(meta['base_seed']);np.random.seed(meta['base_seed']);torch.manual_seed(meta['base_seed'])
     env=None
     try:
+
+        #===================== PHẦN MAIN-05 - KHỞI TẠO MÔ HÌNH ĐÁNH GIÁ =====================
+        # Nạp checkpoint cố định; không tạo optimizer update.
+
         env,model,graph,arch=build_v15(cfg,model_path=simulator,
             fleet_size=PHASES[args.phase][0],port=args.port,device=args.device,
             seed=meta['base_seed'],max_events=meta['max_events'],
             sim_seconds=3600,checkpoint=checkpoint,phase=args.phase)
         adapter=StagePolicyAdapter(model,args.phase,meta['base_seed'])
         collector=EventCollector(adapter,env,stop_mask_mode='baseline')
+
+        #======================= PHẦN MAIN-06 - CHẠY TỪNG SEED ĐỘC LẬP =======================
+        # train=False và torch.no_grad() nên chọn greedy, không cập nhật.
+
         for seed in todo:
             adapter.rng=np.random.default_rng(seed)
             random.seed(seed);np.random.seed(seed);torch.manual_seed(seed)
@@ -104,6 +142,10 @@ def main(argv=None):
                 raise RuntimeError('Truncated evaluation, refusing to save as complete')
             if GraphSpec.from_hive(env.agent_hive).fingerprint!=graph.fingerprint:
                 raise RuntimeError('Graph fingerprint changed')
+
+            #======================== PHẦN MAIN-07 - GHI KẾT QUẢ HELD-OUT ========================
+            # Lưu checkpoint SHA, seed và các metric thành JSONL.
+
             row=dict(phase=args.phase,seed=seed,checkpoint_sha256=state['checkpoint_sha256'],
                      episode=int(state['last_episode']),fleet=PHASES[args.phase][0],
                      sim_seconds=3600,greedy=True,ppo_updates=0,
@@ -118,4 +160,20 @@ def main(argv=None):
         if env is not None:env.close()
     print('[V15 EVAL DONE]',result,flush=True)
 
+#================= KẾT THÚC MODULE 01 - ĐÁNH GIÁ HELD-OUT THEO SEED =================
+
+
+
+
+
+#========================== MODULE 02 - ĐIỂM VÀO EVALUATION ==========================
+# Mục đích: Chỉ chạy main() khi gọi file trực tiếp bằng Python.
+# Giải thích: Nếu import vào wrapper V16-B thì main() không tự chạy.
+
 if __name__=='__main__':main()
+
+#===================== KẾT THÚC MODULE 02 - ĐIỂM VÀO EVALUATION =====================
+
+
+
+

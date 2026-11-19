@@ -1,7 +1,19 @@
+#================= GIẢI THÍCH FILE: XÁC MINH CHECKPOINT VÀ INFERENCE ==================
+# Kiểm tra checkpoint, topology và chọn action greedily khi chạy mô hình.
+# BẢN ĐỌC HIỂU: chỉ bổ sung comment/khoảng trắng; KHÔNG thay đổi câu lệnh gốc.
+# Lưu ý: comment vẫn làm thay đổi SHA256 của file (cần init run mới nếu dùng train).
+#================================ HẾT GIỚI THIỆU FILE =================================
+
+
 """Checkpoint-backed inference for MAPPO V7 with no Alpyne server startup.
 
 Requires local thesis/mappo modules from the original training repository.
 """
+
+
+
+#========================= MODULE 01 - CÁC THƯ VIỆN / IMPORT ==========================
+# import/from trong Python tương tự #include ở C, nhưng có hệ thống module và package.
 from __future__ import annotations
 
 import json
@@ -9,8 +21,13 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import torch
+#===================== KẾT THÚC MODULE 01 - CÁC THƯ VIỆN / IMPORT =====================
 
 
+
+
+#========================= MODULE 02 - HÀM VERIFY_CHECKPOINT ==========================
+# Kiểm tra checkpoint model và metadata trước khi dùng suy luận.
 def verify_checkpoint(checkpoint: Path, run_config: Path):
     checkpoint = Path(checkpoint)
     run_config = Path(run_config)
@@ -40,8 +57,13 @@ def verify_checkpoint(checkpoint: Path, run_config: Path):
         if tuple(roles[role]["actor"]["policy.2.weight"].shape) != (27, 64):
             raise ValueError(f"Dispatch head mismatch: {role}")
     return cfg, raw
+#===================== KẾT THÚC MODULE 02 - HÀM VERIFY_CHECKPOINT =====================
 
 
+
+
+#==================== MODULE 03 - HÀM ASSERT_LIVE_GRAPH_COMPATIBLE ====================
+# Xác nhận topology môi trường thật khớp checkpoint.
 def assert_live_graph_compatible(hive, run_cfg, raw):
     from thesis.mappo.gnn_routing_B3_v121 import GraphSpec
 
@@ -55,8 +77,13 @@ def assert_live_graph_compatible(hive, run_cfg, raw):
     if live.n != run_cfg["graph_nodes"] or len(live.arcs) != run_cfg["graph_edges"]:
         raise RuntimeError("LIVE topology dimensions differ from checkpoint")
     return live
+#=============== KẾT THÚC MODULE 03 - HÀM ASSERT_LIVE_GRAPH_COMPATIBLE ================
 
 
+
+
+#======================= MODULE 04 - HÀM MAKE_INFERENCE_POLICY ========================
+# Nạp mô hình đã học vào chế độ chỉ suy luận.
 def make_inference_policy(checkpoint: Path, run_config: Path, hive):
     """Reconstruct exact trained actor layout from checkpoint, not stale routing_backbone=pooled."""
     from thesis.mappo.algorithm import MAPPOConfig
@@ -97,8 +124,13 @@ def make_inference_policy(checkpoint: Path, run_config: Path, hive):
         role.actor.load_state_dict(raw["roles"][role_name]["actor"], strict=True)
         role.actor.eval()
     return model
+#=================== KẾT THÚC MODULE 04 - HÀM MAKE_INFERENCE_POLICY ===================
 
 
+
+
+#=========================== MODULE 05 - HÀM GREEDY_ACTION ============================
+# Chọn action có xác suất lớn nhất khi evaluate (không sampling).
 @torch.inference_mode()
 def greedy_action(model, role: str, obs: dict) -> int:
     """Use actor-only distribution; no critic or optimizer is needed in Desktop demo."""
@@ -114,3 +146,6 @@ def greedy_action(model, role: str, obs: dict) -> int:
     if not bool(valid[result]):
         raise RuntimeError(f"Actor selected forbidden action {result}")
     return result
+#======================= KẾT THÚC MODULE 05 - HÀM GREEDY_ACTION =======================
+
+

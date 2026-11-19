@@ -1,3 +1,10 @@
+#====================== GIẢI THÍCH FILE: EVENT COLLECTOR CƠ BẢN =======================
+# Thu trajectory và thưởng theo lượt sự kiện; lưu ý V16-B sử dụng collector_stop_ab.py.
+# BẢN ĐỌC HIỂU: chỉ bổ sung comment/khoảng trắng; KHÔNG thay đổi câu lệnh gốc.
+# Lưu ý: comment vẫn làm thay đổi SHA256 của file (cần init run mới nếu dùng train).
+#================================ HẾT GIỚI THIỆU FILE =================================
+
+
 """Event-driven Tobias/AnyLogic MAPPO collector with lifecycle-safe GAE segments.
 
 Paste this file over thesis/mappo/collector.py after making a backup.
@@ -10,18 +17,40 @@ leaving the system is a terminal boundary for that AGV's old trajectory.
 Final actions of agents that are not called again before episode cutoff have
 NO observed reward. They are reported and excluded, never assigned a fake 0.
 """
+
+
+
+#========================= MODULE 01 - CÁC THƯ VIỆN / IMPORT ==========================
+# import/from trong Python tương tự #include ở C, nhưng có hệ thống module và package.
 from __future__ import annotations
 
 from collections import Counter, defaultdict
 import numpy as np
+#===================== KẾT THÚC MODULE 01 - CÁC THƯ VIỆN / IMPORT =====================
 
 
+
+
+#=========================== MODULE 02 - LỚP EVENTCOLLECTOR ===========================
+# Ghi các transition theo thời gian sự kiện và ghép reward vào quyết định đúng agent.
 class EventCollector:
+
+
+    #============================ MODULE CON 01 - __INIT__ ============================
+    # Mục đích: Khởi tạo thuộc tính, tham số và bộ nhớ cho đối tượng.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def __init__(self, model, environment):
         self.model = model
         self.env = environment
         self.unfinished_last_episode = 0
+    #======================= KẾT THÚC MODULE CON 01 - __INIT__ ========================
 
+
+
+
+    #============================ MODULE CON 02 - _PREPARE ============================
+    # Mục đích: Chuyển obs thành float32; giữ mask để chẩn đoán nhưng Routing V16-B vẫn không mask.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def _prepare(self, observation, role):
         mask = np.asarray(observation['action_mask'], dtype=np.float32).reshape(-1)
         n = self.model.roles[role].actor.action_dim
@@ -35,7 +64,14 @@ class EventCollector:
             'stat': np.asarray(observation['stat'], dtype=np.float32).copy(),
             'action_mask': mask.copy(),
         }
+    #======================= KẾT THÚC MODULE CON 02 - _PREPARE ========================
 
+
+
+
+    #======================= MODULE CON 03 - _IS_AGENT_REPLACED =======================
+    # Mục đích: Nhận biết AGV bị thay alias/lifetime để không nối hai trajectory khác đời AGV.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def _is_agent_replaced(self, role, info):
         """Match ONLY the conditions that Matrix._save_observation uses to
         replace a PettingZoo agent with a new alias for the same physical AGV.
@@ -50,7 +86,14 @@ class EventCollector:
             return (('in_system' in info and not bool(info['in_system']))
                     or ('at_target' in info and bool(info['at_target'])))
         return False
+    #================== KẾT THÚC MODULE CON 03 - _IS_AGENT_REPLACED ===================
 
+
+
+
+    #============================ MODULE CON 04 - EPISODE =============================
+    # Mục đích: Chạy một episode event-driven; ghép reward với action trước của cùng physical AGV; xuất trajectory và thống kê.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def episode(self, seed=None, train=True, max_event_steps=None):
         self.env.reset(seed=seed)
         pending = {}  # (role, physical index) -> action awaiting its reward
@@ -164,3 +207,8 @@ class EventCollector:
                 'selected_mask_violations': mask_violations,
             },
         }
+    #======================== KẾT THÚC MODULE CON 04 - EPISODE ========================
+
+#====================== KẾT THÚC MODULE 02 - LỚP EVENTCOLLECTOR =======================
+
+

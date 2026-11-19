@@ -1,3 +1,10 @@
+#=============== GIẢI THÍCH FILE: ĐỒ THỊ CÓ HƯỚNG VÀ GNN THỰC NGHIỆM B3 ===============
+# Chuyển topology Hive sang GraphSpec; chứa backbone B3 nghiên cứu trước đây, V16-B dùng GraphSpec.
+# BẢN ĐỌC HIỂU: chỉ bổ sung comment/khoảng trắng; KHÔNG thay đổi câu lệnh gốc.
+# Lưu ý: comment vẫn làm thay đổi SHA256 của file (cần init run mới nếu dùng train).
+#================================ HẾT GIỚI THIỆU FILE =================================
+
+
 """B3-GNN: directed graph message passing Routing Actor for Tobias/AnyLogic.
 
 Additive experiment module.  Does NOT modify B2, Java, collector, or PPO.
@@ -6,6 +13,11 @@ all per-decision features come exclusively from the actor observation.
 Use with existing GuidedMAPPO + GuidedEventCollector so Dijkstra logit bias
 is applied identically in rollout and PPO updates.
 """
+
+
+
+#========================= MODULE 01 - CÁC THƯ VIỆN / IMPORT ==========================
+# import/from trong Python tương tự #include ở C, nhưng có hệ thống module và package.
 from __future__ import annotations
 
 import hashlib
@@ -16,12 +28,22 @@ import numpy as np
 import torch
 from torch import nn
 from torch.distributions import Categorical
+#===================== KẾT THÚC MODULE 01 - CÁC THƯ VIỆN / IMPORT =====================
 
 
+
+
+#=============================== MODULE 02 - HÀM _COORD ===============================
+# Đưa tọa độ node về cặp float làm dữ liệu đồ thị.
 def _coord(x):
     return [float(x[0]), float(x[1])]
+#========================== KẾT THÚC MODULE 02 - HÀM _COORD ===========================
 
 
+
+
+#============================= MODULE 03 - LỚP GRAPHSPEC ==============================
+# Cấu trúc đồ thị bất biến xây từ nút/cạnh Hive; fingerprint để bảo vệ topology.
 @dataclass(frozen=True)
 class GraphSpec:
     ids: tuple
@@ -29,6 +51,11 @@ class GraphSpec:
     arcs: tuple
     fingerprint: str
 
+
+
+    #=========================== MODULE CON 01 - FROM_HIVE ============================
+    # Mục đích: Lấy topology thật từ env.reset() và chuẩn hóa thành đồ thị có fingerprint SHA256.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     @classmethod
     def from_hive(cls, hive):
         nodes = getattr(hive, 'nodes', None)
@@ -48,23 +75,56 @@ class GraphSpec:
             raise ValueError('Hive has no usable directed arcs')
         canonical = json.dumps(dict(ids=ids, xy=xy, arcs=arcs), separators=(',', ':'))
         return cls(ids, xy, arcs, hashlib.sha256(canonical.encode('utf8')).hexdigest())
+    #======================= KẾT THÚC MODULE CON 01 - FROM_HIVE =======================
 
+
+
+
+    #=============================== MODULE CON 02 - N ================================
+    # Mục đích: Xử lý n theo logic của lớp GraphSpec.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     @property
     def n(self):
         return len(self.ids)
+    #=========================== KẾT THÚC MODULE CON 02 - N ===========================
+
+#========================= KẾT THÚC MODULE 03 - LỚP GRAPHSPEC =========================
 
 
+
+
+#============================= MODULE 04 - LỚP DIRECTEDMP =============================
+# Lớp truyền thông điệp GNN theo các cạnh có hướng.
 class DirectedMP(nn.Module):
     """Successor-to-predecessor message passing along DIRECTED outgoing arcs."""
+
+
+    #============================ MODULE CON 01 - __INIT__ ============================
+    # Mục đích: Khởi tạo thuộc tính, tham số và bộ nhớ cho đối tượng.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def __init__(self, hidden):
         super().__init__()
         self.update = nn.Sequential(nn.Linear(hidden * 2, hidden), nn.Tanh())
+    #======================= KẾT THÚC MODULE CON 01 - __INIT__ ========================
 
+
+
+
+    #============================ MODULE CON 02 - FORWARD =============================
+    # Mục đích: Tính phép biến đổi tensor theo luồng đi tới của mạng PyTorch.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def forward(self, x, outgoing_average):
         neigh = torch.matmul(outgoing_average, x)
         return self.update(torch.cat((x, neigh), dim=-1))
+    #======================== KẾT THÚC MODULE CON 02 - FORWARD ========================
+
+#======================== KẾT THÚC MODULE 04 - LỚP DIRECTEDMP =========================
 
 
+
+
+#========================= MODULE 05 - LỚP GRAPHROUTINGACTOR ==========================
+# Actor graph-routing thử nghiệm B3 với 5 hành động Stop/hướng.
 class GraphRoutingActor(nn.Module):
     """GNN policy for 5 actions (Stop + four Tobias neighbor slots).
 
@@ -75,6 +135,11 @@ class GraphRoutingActor(nn.Module):
     """
     action_dim = 5
 
+
+
+    #============================ MODULE CON 01 - __INIT__ ============================
+    # Mục đích: Khởi tạo thuộc tính, tham số và bộ nhớ cho đối tượng.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def __init__(self, obs_space, graph: GraphSpec, hidden=32, layers=2):
         super().__init__()
         if hidden < 4 or layers < 1:
@@ -104,13 +169,27 @@ class GraphRoutingActor(nn.Module):
         self.fallback = nn.Sequential(nn.Linear(4, hidden), nn.Tanh())
         self.stop = nn.Sequential(nn.Linear(3 * hidden, hidden), nn.Tanh(), nn.Linear(hidden, 1))
         self.move = nn.Sequential(nn.Linear(4 * hidden + 3, hidden), nn.Tanh(), nn.Linear(hidden, 1))
+    #======================= KẾT THÚC MODULE CON 01 - __INIT__ ========================
 
+
+
+
+    #============================= MODULE CON 02 - _MATCH =============================
+    # Mục đích: Ánh xạ tọa độ AGV sang ID node của graph.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def _match(self, coords, tolerance=1e-3):
         """Closest exact graph node, plus valid-match flag; supports [B,K,2]."""
         distance = (coords.unsqueeze(-2) - self.node_xy).abs().amax(dim=-1)
         nearest = distance.argmin(-1)
         return nearest, distance.gather(-1, nearest.unsqueeze(-1)).squeeze(-1) < tolerance
+    #======================== KẾT THÚC MODULE CON 02 - _MATCH =========================
 
+
+
+
+    #============================= MODULE CON 03 - LOGITS =============================
+    # Mục đích: Tạo node embedding và Q/logits cho 5 hướng dựa trên đồ thị có hướng.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def logits(self, obs):
         agvs, stat = obs['agvs'], obs['stat']
         if agvs.ndim != 3 or stat.ndim != 3 or agvs.shape[-1] < 16:
@@ -161,12 +240,26 @@ class GraphRoutingActor(nn.Module):
                                                     dim=-1, keepdim=True)), -1)
         moves = self.move(block).squeeze(-1)
         return torch.cat((stops, moves), dim=-1)
+    #======================== KẾT THÚC MODULE CON 03 - LOGITS =========================
 
+
+
+
+    #============================== MODULE CON 04 - DIST ==============================
+    # Mục đích: Tạo phân phối xác suất hành động Categorical từ logits của Actor.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def dist(self, obs):
         from thesis.mappo.networks import masked_logits
         return Categorical(logits=masked_logits(self.logits(obs), obs['action_mask']))
+    #========================= KẾT THÚC MODULE CON 04 - DIST ==========================
+
+#===================== KẾT THÚC MODULE 05 - LỚP GRAPHROUTINGACTOR =====================
 
 
+
+
+#==================== MODULE 06 - HÀM UPGRADE_GUIDED_MAPPO_TO_GNN =====================
+# Chuyển backbone Routing ở nhánh B3 mà không thay đổi nhiệm vụ Dispatch.
 def upgrade_guided_mappo_to_gnn(model, hive, hidden=32, layers=2):
     """Replace ONLY Routing actor. Must be called before the first rollout or load."""
     from thesis.mappo.routing_guidance_v121 import enable_routing_distribution_prior
@@ -191,3 +284,6 @@ def upgrade_guided_mappo_to_gnn(model, hive, hidden=32, layers=2):
     model.gnn_graph_nodes, model.gnn_graph_edges = spec.n, len(spec.arcs)
     model.gnn_layers = layers
     return spec
+#================ KẾT THÚC MODULE 06 - HÀM UPGRADE_GUIDED_MAPPO_TO_GNN ================
+
+

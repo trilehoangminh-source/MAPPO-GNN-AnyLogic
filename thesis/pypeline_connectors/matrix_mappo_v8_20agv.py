@@ -1,3 +1,10 @@
+#==================== GIẢI THÍCH FILE: CONNECTOR MAPPO V8 - 20 AGV ====================
+# Biến thể connector dành cho 20 AGV; không phải runner train V16-B.
+# BẢN ĐỌC HIỂU: chỉ bổ sung comment/khoảng trắng; KHÔNG thay đổi câu lệnh gốc.
+# Lưu ý: comment vẫn làm thay đổi SHA256 của file (cần init run mới nếu dùng train).
+#================================ HẾT GIỚI THIỆU FILE =================================
+
+
 """AnyLogic Desktop animation: MAPPO V8 Residual Edge-GAT, 20 AGVs.
 
 Only inference (no RL training). AnyLogic's Main.runmode=3 calls get_config
@@ -8,15 +15,28 @@ Setup: copy the trained checkpoint to
 and set Main.RL_pypeline_name = "matrix_mappo_v8_20agv".
 The checkpoint is checked against the 20-AGV run_config.json and live graph.
 """
+
+
+
+#========================= MODULE 01 - CÁC THƯ VIỆN / IMPORT ==========================
+# import/from trong Python tương tự #include ở C, nhưng có hệ thống module và package.
 from __future__ import annotations
 
 import os
 from pathlib import Path
 
+
+
+
+#======================= MODULE 02 - HẰNG SỐ VÀ CẤU HÌNH CHUNG ========================
+# Các biến module được đọc bởi các hàm/lớp bên dưới; gần với biến toàn cục trong C.
 os.environ["MAPPO_DISPATCH_MASK_MODE"] = "operation_first"
 
 from thesis.envs.alpyne121_bridge import Observation
 from .v7_inference import verify_checkpoint, make_inference_policy, greedy_action
+#===================== KẾT THÚC MODULE 01 - CÁC THƯ VIỆN / IMPORT =====================
+
+
 
 ROOT = Path(__file__).resolve().parents[2]
 RUN_DIR = ROOT / "mappo_runs" / "V8_RESIDUAL_EDGEGAT_JOBDONE2_FROM205"
@@ -36,8 +56,13 @@ _env = None
 _model = None
 _collector = None
 _call_count = 0
+#=================== KẾT THÚC MODULE 02 - HẰNG SỐ VÀ CẤU HÌNH CHUNG ===================
 
 
+
+
+#==================== MODULE 03 - HÀM _MAKE_MODEL_FREE_ENVIRONMENT ====================
+# Dựng môi trường không cần checkpoint để kiểm tra dữ liệu và topology.
 def _make_model_free_environment():
     """Build Tobias converters WITHOUT launching an external Alpyne Java server."""
     from thesis.envs.matrix_v121 import Matrix
@@ -68,22 +93,37 @@ def _make_model_free_environment():
     env._mappo_station_cache = None
     env._mappo_station_source = "missing"
     return env
+#=============== KẾT THÚC MODULE 03 - HÀM _MAKE_MODEL_FREE_ENVIRONMENT ================
 
 
+
+
+#=========================== MODULE 04 - HÀM _ENV_INSTANCE ============================
+# Giữ hoặc truy xuất instance môi trường được cache bởi connector.
 def _env_instance():
     global _env
     if _env is None:
         _env = _make_model_free_environment()
     return _env
+#======================= KẾT THÚC MODULE 04 - HÀM _ENV_INSTANCE =======================
 
 
+
+
+#============================= MODULE 05 - HÀM GET_CONFIG =============================
+# Trả cấu hình thí nghiệm/mô phỏng cho connector.
 def get_config(key: str):
     config = _env_instance().config
     if key in config.names():
         return config.values()[config.names().index(key)]
     raise KeyError(f"Pypeline unknown configuration key: {key}")
+#======================== KẾT THÚC MODULE 05 - HÀM GET_CONFIG =========================
 
 
+
+
+#=========================== MODULE 06 - HÀM _ENSURE_MODEL ============================
+# Nạp/khởi tạo checkpoint phù hợp nếu model chưa sẵn sàng.
 def _ensure_model(env):
     global _model, _collector
     if _model is not None:
@@ -99,8 +139,13 @@ def _ensure_model(env):
         routing_guide_strength=1.5,  # V8 train/eval use 1.5, NOT legacy V7 metadata
     )
     print(f"[V8 20AGV ANIMATION] LOADED: {CHECKPOINT} | fleet=20 | Residual Edge-GAT | Dijkstra=1.5", flush=True)
+#======================= KẾT THÚC MODULE 06 - HÀM _ENSURE_MODEL =======================
 
 
+
+
+#============================= MODULE 07 - HÀM GET_ACTION =============================
+# Nhận observation và trả action tương thích connector của module.
 def get_action(observation, caller, n_nodes, context, statTitles, statValues, time):
     global _call_count
     env = _env_instance()
@@ -141,3 +186,6 @@ def get_action(observation, caller, n_nodes, context, statTitles, statValues, ti
     if _call_count <= 15 or _call_count % 300 == 0:
         print(f"[V8 20AGV ANIMATION] t={time} caller={caller} role={role} action={action} count={_call_count}", flush=True)
     return java_text
+#======================== KẾT THÚC MODULE 07 - HÀM GET_ACTION =========================
+
+

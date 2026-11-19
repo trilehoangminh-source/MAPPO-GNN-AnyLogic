@@ -1,9 +1,23 @@
 """Summarize V15 held-out JSONL; descriptive only, not matched Tobias statistical parity."""
+#================== MODULE 00 - NẠP THƯ VIỆN VÀ ĐỌC JSONL HELD-OUT ==================
+# Mục đích: Chuẩn bị argparse, JSON và NumPy để thống kê checkpoint cố định.
+# Giải thích: Chỉ đọc log: không chạy AnyLogic và không cập nhật PPO.
+
 import argparse
 import json
 from pathlib import Path
 import numpy as np
 
+
+
+#============== KẾT THÚC MODULE 00 - NẠP THƯ VIỆN VÀ ĐỌC JSONL HELD-OUT ==============
+
+
+
+
+#====================== MODULE 01 - TỔNG HỢP KẾT QUẢ EVALUATION ======================
+# Mục đích: Kiểm tra seed không trùng và toàn bộ hàng cùng checkpoint/phase/fleet.
+# Giải thích: In mean, sample SD cho JobDone, Block, LiveLock, TargetReached và WrongTarget.
 
 def main(argv=None):
     p=argparse.ArgumentParser(description=__doc__)
@@ -24,4 +38,20 @@ def main(argv=None):
         print(f'{name:15s} mean={np.mean(values):9.2f} std={np.std(values,ddof=1) if len(values)>1 else 0:8.2f} n={len(values)}')
     print('Note: comparison to Tobias Figure 8 requires matched simulation/evaluation definitions.')
 
+#================= KẾT THÚC MODULE 01 - TỔNG HỢP KẾT QUẢ EVALUATION =================
+
+
+
+
+
+#======================= MODULE 02 - ĐIỂM VÀO SCRIPT THỐNG KÊ =======================
+# Mục đích: Nhận đường dẫn heldout_*.jsonl từ terminal.
+# Giải thích: Kết quả hiện ở màn hình terminal.
+
 if __name__=='__main__':main()
+
+#=================== KẾT THÚC MODULE 02 - ĐIỂM VÀO SCRIPT THỐNG KÊ ===================
+
+
+
+

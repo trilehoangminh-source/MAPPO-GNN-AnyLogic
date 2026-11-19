@@ -1,9 +1,27 @@
+#===================== GIẢI THÍCH FILE: CONNECTOR HIỂN THỊ MATRIX =====================
+# Hỗ trợ chọn hành động cho mô hình minh họa/visualization.
+# BẢN ĐỌC HIỂU: chỉ bổ sung comment/khoảng trắng; KHÔNG thay đổi câu lệnh gốc.
+# Lưu ý: comment vẫn làm thay đổi SHA256 của file (cần init run mới nếu dùng train).
+#================================ HẾT GIỚI THIỆU FILE =================================
 
+
+
+
+#========================= MODULE 01 - CÁC THƯ VIỆN / IMPORT ==========================
+# import/from trong Python tương tự #include ở C, nhưng có hệ thống module và package.
 from alpyne.data.spaces import Observation
 from ..envs.matrix import Matrix
+#===================== KẾT THÚC MODULE 01 - CÁC THƯ VIỆN / IMPORT =====================
+
+
 
 # ===== CAU HINH MO PHONG =====
 
+
+
+
+#======================= MODULE 02 - HẰNG SỐ VÀ CẤU HÌNH CHUNG ========================
+# Các biến module được đọc bởi các hàm/lớp bên dưới; gần với biến toàn cục trong C.
 FLEETSIZE = 2
 
 env = Matrix(
@@ -36,10 +54,18 @@ env = Matrix(
 )
 
 env_config = env.config
+#=================== KẾT THÚC MODULE 02 - HẰNG SỐ VÀ CẤU HÌNH CHUNG ===================
+
+
 
 
 # ===== GUI CAU HINH CHO ANYLOGIC =====
 
+
+
+
+#============================= MODULE 03 - HÀM GET_CONFIG =============================
+# Trả cấu hình thí nghiệm/mô phỏng cho connector.
 def get_config(name: str):
 
     # Tuong thich ten tham so trong Main cua Tobias
@@ -52,10 +78,18 @@ def get_config(name: str):
         ]
 
     raise KeyError(f"Unknown configuration: {name}")
+#======================== KẾT THÚC MODULE 03 - HÀM GET_CONFIG =========================
+
+
 
 
 # ===== PYTHON TINH ACTION CHO AGV =====
 
+
+
+
+#============================= MODULE 04 - HÀM GET_ACTION =============================
+# Nhận observation và trả action tương thích connector của module.
 def get_action(
     observation,
     caller,
@@ -94,3 +128,6 @@ def get_action(
 
     # Tinh Action theo thuat toan cua Tobias
     return behavior.get_action(alpyne_obs, time=time)
+#======================== KẾT THÚC MODULE 04 - HÀM GET_ACTION =========================
+
+

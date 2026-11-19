@@ -1,4 +1,16 @@
+#================ GIẢI THÍCH FILE: BỘ KHUNG MAPPO - ROLE/ACTOR/CRITIC =================
+# Tạo ba role, chuyển observation/state thành tensor, chọn action và lưu/nạp trạng thái mạng.
+# BẢN ĐỌC HIỂU: chỉ bổ sung comment/khoảng trắng; KHÔNG thay đổi câu lệnh gốc.
+# Lưu ý: comment vẫn làm thay đổi SHA256 của file (cần init run mới nếu dùng train).
+#================================ HẾT GIỚI THIỆU FILE =================================
+
+
 """Independent on-policy MAPPO optimization with role-specific centralized critics."""
+
+
+
+#========================= MODULE 01 - CÁC THƯ VIỆN / IMPORT ==========================
+# import/from trong Python tương tự #include ở C, nhưng có hệ thống module và package.
 from __future__ import annotations
 from dataclasses import dataclass, asdict
 from collections import defaultdict
@@ -8,8 +20,13 @@ import torch
 from torch import nn
 
 from .networks import Actor, CentralCritic
+#===================== KẾT THÚC MODULE 01 - CÁC THƯ VIỆN / IMPORT =====================
 
 
+
+
+#============================ MODULE 02 - LỚP MAPPOCONFIG =============================
+# Tập tham số của gamma, lambda, clip, entropy, learning rate, số epoch và mini-batch.
 @dataclass
 class MAPPOConfig:
     gamma: float = 0.90  # Tobias paper tested 0.90; tune with controls
@@ -29,18 +46,42 @@ class MAPPOConfig:
     dispatch_backbone: str = 'original_linear'
     env_type: str = 'matrix'
     two_fleets: bool = True
+#======================== KẾT THÚC MODULE 02 - LỚP MAPPOCONFIG ========================
 
 
+
+
+#========================== MODULE 03 - LỚP RUNNINGVALUENORM ==========================
+# Chuẩn hóa giá trị Critic bằng thống kê trung bình/phương sai cập nhật theo rollout.
 class RunningValueNorm:
+
+
+    #============================ MODULE CON 01 - __INIT__ ============================
+    # Mục đích: Khởi tạo thuộc tính, tham số và bộ nhớ cho đối tượng.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def __init__(self, eps=1e-4):
         self.count = float(eps)
         self.mean = 0.0
         self.m2 = float(eps)
+    #======================= KẾT THÚC MODULE CON 01 - __INIT__ ========================
 
+
+
+
+    #============================== MODULE CON 02 - STD ===============================
+    # Mục đích: Xử lý std theo logic của lớp RunningValueNorm.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     @property
     def std(self):
         return max(1e-4, (self.m2 / self.count) ** 0.5)
+    #========================== KẾT THÚC MODULE CON 02 - STD ==========================
 
+
+
+
+    #============================= MODULE CON 03 - UPDATE =============================
+    # Mục đích: Cập nhật mean/variance từ các return targets của rollout mới.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def update(self, targets):
         a = np.asarray(targets, dtype=np.float64)
         if not len(a):
@@ -51,40 +92,100 @@ class RunningValueNorm:
         self.mean += delta * n / total
         self.m2 += m2 + delta * delta * self.count * n / total
         self.count = total
+    #======================== KẾT THÚC MODULE CON 03 - UPDATE =========================
 
+
+
+
+    #========================== MODULE CON 04 - UNNORMALIZE ===========================
+    # Mục đích: Đưa dự đoán Critic về thang reward gốc phục vụ GAE.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def unnormalize(self, values):
         return values * self.std + self.mean
+    #====================== KẾT THÚC MODULE CON 04 - UNNORMALIZE ======================
 
+
+
+
+    #=========================== MODULE CON 05 - NORMALIZE ============================
+    # Mục đích: Đưa return về thang chuẩn hóa để train Critic.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def normalize(self, values):
         return (values - self.mean) / self.std
+    #======================= KẾT THÚC MODULE CON 05 - NORMALIZE =======================
 
+
+
+
+    #=========================== MODULE CON 06 - STATE_DICT ===========================
+    # Mục đích: Xử lý state dict theo logic của lớp RunningValueNorm.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def state_dict(self):
         return dict(mean=self.mean, m2=self.m2, count=self.count)
+    #====================== KẾT THÚC MODULE CON 06 - STATE_DICT =======================
 
+
+
+
+    #======================== MODULE CON 07 - LOAD_STATE_DICT =========================
+    # Mục đích: Xử lý load state dict theo logic của lớp RunningValueNorm.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def load_state_dict(self, d):
         self.mean, self.m2, self.count = d['mean'], d['m2'], d['count']
+    #==================== KẾT THÚC MODULE CON 07 - LOAD_STATE_DICT ====================
+
+#===================== KẾT THÚC MODULE 03 - LỚP RUNNINGVALUENORM ======================
 
 
+
+
+#============================== MODULE 04 - HÀM AS_ACTOR ==============================
+# Chuyển dict observation sang tensor float32 trên device của Actor.
 def as_actor(obs, device):
     return {k: torch.as_tensor(obs[k], dtype=torch.float32, device=device) for k in ('agvs', 'stat', 'action_mask')}
+#========================= KẾT THÚC MODULE 04 - HÀM AS_ACTOR ==========================
 
 
+
+
+#============================= MODULE 05 - HÀM AS_GLOBAL ==============================
+# Chuyển global state sang tensor cho Centralized Critic.
 def as_global(state, device):
     return dict(agvs=torch.as_tensor(state['agvs'], dtype=torch.float32, device=device),
                 stat=torch.as_tensor(state['stat'], dtype=torch.float32, device=device),
                 ego=torch.as_tensor(state['ego'], dtype=torch.long, device=device))
+#========================= KẾT THÚC MODULE 05 - HÀM AS_GLOBAL =========================
 
 
+
+
+#============================== MODULE 06 - HÀM BATCHIFY ==============================
+# Thêm chiều batch ở đầu (tương tự mảng đầu vào mạng một mẫu).
 def batchify(obs):
     return {k: v.unsqueeze(0) for k, v in obs.items()}
+#========================= KẾT THÚC MODULE 06 - HÀM BATCHIFY ==========================
 
 
+
+
+#============================= MODULE 07 - HÀM STACK_DICT =============================
+# Gom nhiều observation/state thành tensor batch để train.
 def stack_dict(items, converter, device):
     coll = [converter(item, device) for item in items]
     return {k: torch.stack([a[k] for a in coll]) for k in coll[0]}
+#======================== KẾT THÚC MODULE 07 - HÀM STACK_DICT =========================
 
 
+
+
+#============================= MODULE 08 - LỚP ROLEPOLICY =============================
+# Một role chứa Actor, Centralized Critic, Adam và ValueNorm riêng.
 class RolePolicy:
+
+
+    #============================ MODULE CON 01 - __INIT__ ============================
+    # Mục đích: Khởi tạo thuộc tính, tham số và bộ nhớ cho đối tượng.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def __init__(self, obs_space, feature_dim, role, action_dim, config, device):
         self.actor = Actor(obs_space, role, action_dim, config.routing_backbone if role == 'routing' else config.dispatch_backbone, hidden=config.hidden, env_type=config.env_type).to(device)
         self.critic = CentralCritic(feature_dim, config.hidden).to(device)
@@ -92,7 +193,14 @@ class RolePolicy:
         self.critic_optimizer = torch.optim.Adam(self.critic.parameters(), lr=config.critic_lr)
         self.valuenorm = RunningValueNorm()
         self.device = device
+    #======================= KẾT THÚC MODULE CON 01 - __INIT__ ========================
 
+
+
+
+    #============================== MODULE CON 02 - ACT ===============================
+    # Mục đích: Actor chọn action (sample khi train, greedy khi evaluate), trả logprob và Critic value ở thang gốc.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     @torch.no_grad()
     def act(self, obs, global_state, greedy=False):
         # BatchNorm in Tobias's feature extractors must run in eval mode for action selection.
@@ -105,9 +213,21 @@ class RolePolicy:
         logp = dist.log_prob(action)
         val = self.valuenorm.unnormalize(self.critic(global_t))
         return int(action.item()), float(logp.item()), float(val.item())
+    #========================== KẾT THÚC MODULE CON 02 - ACT ==========================
+
+#======================== KẾT THÚC MODULE 08 - LỚP ROLEPOLICY =========================
 
 
+
+
+#=============================== MODULE 09 - LỚP MAPPO ================================
+# Điều phối ba role, chọn action và cập nhật Actor/Critic từ trajectory.
 class MAPPO:
+
+
+    #============================ MODULE CON 01 - __INIT__ ============================
+    # Mục đích: Khởi tạo thuộc tính, tham số và bộ nhớ cho đối tượng.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def __init__(self, actor_spaces, global_feature_dim, cfg: MAPPOConfig, device='cpu'):
         self.cfg = cfg
         self.device = torch.device(device)
@@ -115,7 +235,14 @@ class MAPPO:
         for role_name, (obs_space, action_dim) in actor_spaces.items():
             role = 'routing' if role_name == 'routing' else 'dispatching'
             self.roles[role_name] = RolePolicy(obs_space, global_feature_dim, role, action_dim, cfg, self.device)
+    #======================= KẾT THÚC MODULE CON 01 - __INIT__ ========================
 
+
+
+
+    #============================ MODULE CON 02 - ROLE_FOR ============================
+    # Mục đích: Chọn role từ agent ID: Routing nếu <1000, Front/Rear theo chỉ số AGV.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     @staticmethod
     def role_for(agent_id, ego, two_fleets=True):
         if int(agent_id) < 1000:
@@ -123,17 +250,38 @@ class MAPPO:
         if two_fleets:
             return 'dispatch_front' if ego % 2 == 0 else 'dispatch_rear'
         return 'dispatching'
+    #======================= KẾT THÚC MODULE CON 02 - ROLE_FOR ========================
 
+
+
+
+    #============================= MODULE CON 03 - VALUE ==============================
+    # Mục đích: Xử lý value theo logic của lớp MAPPO.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     @torch.no_grad()
     def value(self, role, state):
         net = self.roles[role]
         net.critic.eval()
         val = net.critic(batchify(as_global(state, self.device)))
         return float(net.valuenorm.unnormalize(val).item())
+    #========================= KẾT THÚC MODULE CON 03 - VALUE =========================
 
+
+
+
+    #============================== MODULE CON 04 - ACT ===============================
+    # Mục đích: Xử lý act theo logic của lớp MAPPO.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def act(self, role, obs, state, greedy=False):
         return self.roles[role].act(obs, state, greedy)
+    #========================== KẾT THÚC MODULE CON 04 - ACT ==========================
 
+
+
+
+    #============================= MODULE CON 05 - TRAIN ==============================
+    # Mục đích: Hàm train MAPPO nền; khi bật V7/V15 full-rollout sẽ được thay bằng trainer tương ứng.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def train(self, trajectories):
         """Trajectories: list[list[transition]] grouped by episode+physical agent.
 
@@ -208,13 +356,27 @@ class MAPPO:
                                 value_loss=total_value/updates, approx_kl=total_kl/updates,
                                 optimizer_steps=updates)
         return report
+    #========================= KẾT THÚC MODULE CON 05 - TRAIN =========================
 
+
+
+
+    #============================== MODULE CON 06 - SAVE ==============================
+    # Mục đích: Lưu trọng số và các trạng thái cần thiết để resume.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def save(self, path):
         torch.save(dict(config=asdict(self.cfg), roles={name:dict(
             actor=net.actor.state_dict(), critic=net.critic.state_dict(),
             actor_optimizer=net.actor_optimizer.state_dict(), critic_optimizer=net.critic_optimizer.state_dict(),
             valuenorm=net.valuenorm.state_dict()) for name,net in self.roles.items()}), path)
+    #========================= KẾT THÚC MODULE CON 06 - SAVE ==========================
 
+
+
+
+    #============================== MODULE CON 07 - LOAD ==============================
+    # Mục đích: Nạp trọng số và trạng thái đã lưu từ checkpoint.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def load(self, path):
         data = torch.load(path, map_location=self.device)
         for name, state in data['roles'].items():
@@ -224,3 +386,8 @@ class MAPPO:
             net.actor_optimizer.load_state_dict(state['actor_optimizer'])
             net.critic_optimizer.load_state_dict(state['critic_optimizer'])
             net.valuenorm.load_state_dict(state['valuenorm'])
+    #========================= KẾT THÚC MODULE CON 07 - LOAD ==========================
+
+#=========================== KẾT THÚC MODULE 09 - LỚP MAPPO ===========================
+
+

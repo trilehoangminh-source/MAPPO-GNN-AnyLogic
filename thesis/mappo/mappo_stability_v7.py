@@ -1,9 +1,21 @@
+#======================= GIẢI THÍCH FILE: GAE VÀ PPO ỔN ĐỊNH V7 =======================
+# Tính GAE/return, ValueNorm, clipped policy/value loss và xác minh log-prob rollout.
+# BẢN ĐỌC HIỂU: chỉ bổ sung comment/khoảng trắng; KHÔNG thay đổi câu lệnh gốc.
+# Lưu ý: comment vẫn làm thay đổi SHA256 của file (cần init run mới nếu dùng train).
+#================================ HẾT GIỚI THIỆU FILE =================================
+
+
 """V7 MAPPO stability upgrades for event-driven Tobias/AnyLogic.
 
 A non-destructive replacement of `MAPPO.train` on a single model instance.
 Keeps actor, critic, routing Dijkstra prior, dispatching actor and checkpoints
 unchanged. Inspired by marlbenchmark/on-policy (R_MAPPO), independently adapted.
 """
+
+
+
+#========================= MODULE 01 - CÁC THƯ VIỆN / IMPORT ==========================
+# import/from trong Python tương tự #include ở C, nhưng có hệ thống module và package.
 from __future__ import annotations
 
 from collections import defaultdict
@@ -14,8 +26,13 @@ import os
 import numpy as np
 import torch
 from torch import nn
+#===================== KẾT THÚC MODULE 01 - CÁC THƯ VIỆN / IMPORT =====================
 
 
+
+
+#============================= MODULE 02 - LỚP V7OPTIONS ==============================
+# Bộ tùy chọn ổn định PPO: value clipping, KL threshold, discount thời gian.
 @dataclass(frozen=True)
 class V7Options:
     value_loss: str = 'clipped_huber'  # mse / clipped_mse / clipped_huber
@@ -24,6 +41,11 @@ class V7Options:
     target_kl: float = 0.03  # positive approximate KL stop threshold, 0 disables
     time_unit_seconds: float = 0.0  # 0: classic per-decision GAE, >0: experimental SMDP GAE
 
+
+
+    #========================= MODULE CON 01 - __POST_INIT__ ==========================
+    # Mục đích: Kiểm tra giá trị tham số sau khi tạo dataclass.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def __post_init__(self):
         if self.value_loss not in ('mse', 'clipped_mse', 'clipped_huber'):
             raise ValueError('value_loss must be mse/clipped_mse/clipped_huber')
@@ -35,8 +57,15 @@ class V7Options:
             raise ValueError('target_kl must be >= 0')
         if not math.isfinite(self.time_unit_seconds) or self.time_unit_seconds < 0:
             raise ValueError('time_unit_seconds must be >= 0')
+    #===================== KẾT THÚC MODULE CON 01 - __POST_INIT__ =====================
+
+#========================= KẾT THÚC MODULE 02 - LỚP V7OPTIONS =========================
 
 
+
+
+#========================== MODULE 03 - HÀM MAKE_GAE_RECORDS ==========================
+# Duyệt ngược trajectory, tính delta_t và GAE; return_target = advantage + V(s).
 def make_gae_records(trajectories, gamma: float, lam: float, time_unit_seconds: float = 0.):
     """One trajectory per physical AGV lifetime; NO stitching across aliases.
 
@@ -44,9 +73,15 @@ def make_gae_records(trajectories, gamma: float, lam: float, time_unit_seconds: 
     Lambda still applies *per decision*: gamma_t * lambda. Training mode must
     be compared as an ablation; it does not reconstruct undisclosed rewards.
     """
+
+    #====================== MỤC NHỎ - NHÓM TRAJECTORY THEO ROLE =======================
+    # Trajectories chia theo lifetime; GAE không ghép qua các alias.
     groups = defaultdict(list)
     for trajectory in trajectories:
         gae = 0.0
+
+        #===================== MỤC NHỎ - TÍNH GAE NGƯỢC THỜI GIAN =====================
+        # delta = r + gamma_t V_next - V; A = delta + gamma_t lambda A_next.
         for step in reversed(trajectory):
             if time_unit_seconds > 0:
                 if 'elapsed_seconds' not in step:
@@ -65,11 +100,19 @@ def make_gae_records(trajectories, gamma: float, lam: float, time_unit_seconds: 
                 raise FloatingPointError('Nonfinite advantage; inspect rewards and values')
             entry = dict(step)
             entry['advantage'] = gae
+
+            #====================== MỤC NHỎ - TẠO TARGET CRITIC =======================
+            # Return target theo thang reward gốc = GAE + giá trị rollout.
             entry['return_target'] = gae + float(step['value'])
             groups[step['role']].append(entry)
     return groups
+#===================== KẾT THÚC MODULE 03 - HÀM MAKE_GAE_RECORDS ======================
 
 
+
+
+#============================ MODULE 04 - HÀM CRITIC_LOSS =============================
+# Tính giá trị lỗi Critic có thể clip và/hoặc dùng Huber, trên thang đã ValueNorm.
 def critic_loss(predicted, old_value_predictions, normalized_targets, config: V7Options):
     """PPO clipped value loss in CURRENT value-normalizer coordinates.
 
@@ -90,8 +133,13 @@ def critic_loss(predicted, old_value_predictions, normalized_targets, config: V7
         predicted - old_value_predictions,
         -config.value_clip_epsilon, config.value_clip_epsilon)
     return torch.maximum(original, err_fn(clipped - normalized_targets)).mean()
+#======================== KẾT THÚC MODULE 04 - HÀM CRITIC_LOSS ========================
 
 
+
+
+#============================== MODULE 05 - HÀM TRAIN_V7 ==============================
+# PPO ổn định cho từng role: advantage, ratio/clipping, entropy, Actor/Critic Adam.
 def train_v7(self, trajectories):
     """Train role-specific actor/centralized critic with strict on-policy masks.
 
@@ -102,9 +150,15 @@ def train_v7(self, trajectories):
 
     cfg = self.cfg
     opts = self._v7_options
+
+    #======================== MỤC NHỎ - TÍNH ADVANTAGE/RETURN =========================
+    # Phân chia trajectory và tính GAE theo role.
     grouped = make_gae_records(trajectories, cfg.gamma, cfg.gae_lambda,
                                opts.time_unit_seconds)
     reports = {}
+
+    #========================= MỤC NHỎ - HUẤN LUYỆN TỪNG ROLE =========================
+    # Mỗi role có Actor, Critic, ValueNorm và Adam riêng.
     for role, items in grouped.items():
         if role not in self.roles:
             raise KeyError('Unknown role in trajectory: ' + str(role))
@@ -131,6 +185,9 @@ def train_v7(self, trajectories):
             if bool((legal <= 0.5).any()):
                 raise RuntimeError('Rollout includes an action forbidden by stored action mask')
 
+
+        #======================= MỤC NHỎ - CHUẨN HÓA ADVANTAGE ========================
+        # Chuẩn hóa advantage, cập nhật ValueNorm và chuẩn hóa targets Critic.
         if cfg.normalize_advantage and len(advantage) > 1:
             advantage = (advantage - advantage.mean()) / advantage.std(unbiased=False).clamp(min=1e-6)
         # Update normalizer ONCE per rollout, never once per PPO epoch/minibatch.
@@ -143,6 +200,9 @@ def train_v7(self, trajectories):
         targets = torch.as_tensor(normalized_returns, dtype=torch.float32, device=self.device)
         old_vpred = torch.as_tensor(normalized_old_values, dtype=torch.float32, device=self.device)
 
+
+        #==================== MỤC NHỎ - ĐƯA MẠNG VÀO CHẾ ĐỘ TRAIN =====================
+        # Giữ thống kê BatchNorm ổn định giữa rollout và update.
         net.actor.train()
         # Rollout occurs in eval() mode. Preserve BatchNorm statistics and
         # distributions in PPO to avoid changing policy *without an update*.
@@ -178,6 +238,9 @@ def train_v7(self, trajectories):
                 logratio = new_logp - old_logp[idx]
                 if not torch.isfinite(logratio).all():
                     raise FloatingPointError('Nonfinite policy log ratio')
+
+                #=================== MỤC NHỎ - PPO IMPORTANCE RATIO ===================
+                # ratio = exp(log_pi_new - log_pi_old).
                 ratio = torch.exp(logratio)
                 if not torch.isfinite(ratio).all():
                     raise FloatingPointError('Nonfinite policy ratio')
@@ -189,6 +252,9 @@ def train_v7(self, trajectories):
                         early_stopped = True
                         break
                     clipfrac = ((ratio - 1.).abs() > cfg.clip_epsilon).float().mean()
+
+                #================== MỤC NHỎ - CLIPPED SURROGATE LOSS ==================
+                # Dùng min giữa ratio*A và clip(ratio)*A; cộng entropy bonus.
                 surrogate = torch.minimum(
                     ratio * advantage[idx],
                     ratio.clamp(1. - cfg.clip_epsilon, 1. + cfg.clip_epsilon) * advantage[idx])
@@ -201,6 +267,9 @@ def train_v7(self, trajectories):
                     raise FloatingPointError('Nonfinite actor gradient norm')
                 net.actor_optimizer.step()
 
+
+                #==================== MỤC NHỎ - CRITIC LOSS / ADAM ====================
+                # Tính value loss riêng rồi backward/Adam cho Critic.
                 predicted = net.critic(sub_gs)
                 value_loss = critic_loss(predicted, old_vpred[idx], targets[idx], opts)
                 net.critic_optimizer.zero_grad()
@@ -229,8 +298,13 @@ def train_v7(self, trajectories):
                       discount_mode=('elapsed_seconds' if opts.time_unit_seconds else 'per_decision'))
         reports[role] = report
     return reports
+#========================= KẾT THÚC MODULE 05 - HÀM TRAIN_V7 ==========================
 
 
+
+
+#============================= MODULE 06 - HÀM ENABLE_V7 ==============================
+# Gắn trainer V7 vào model instance, không sửa class MAPPO gốc.
 def enable_v7(model, options: V7Options | None = None):
     """Install V7 update on only one MAPPO instance, leaving old versions alone."""
     if getattr(model, '_v7_stability_installed', False):
@@ -241,7 +315,13 @@ def enable_v7(model, options: V7Options | None = None):
     model.train = MethodType(train_v7, model)
     model._v7_stability_installed = True
     return asdict(model._v7_options)
+#========================= KẾT THÚC MODULE 06 - HÀM ENABLE_V7 =========================
 
+
+
+
+#======================== MODULE 07 - HÀM AUDIT_ROLLOUT_ROLES =========================
+# So sánh log-prob đã lưu khi rollout với log-prob mạng hiện tại trước PPO.
 @torch.no_grad()
 def audit_rollout_roles(model, trajectories, max_per_role: int = 32, atol: float = 1e-4):
     """Pre-update logp parity of ALL roles (Routing AND Dispatching)."""
@@ -281,3 +361,6 @@ def audit_rollout_roles(model, trajectories, max_per_role: int = 32, atol: float
         if err > atol:
             raise RuntimeError(f'PPO pre-update logp mismatch in {role}: {err}')
     return report
+#==================== KẾT THÚC MODULE 07 - HÀM AUDIT_ROLLOUT_ROLES ====================
+
+

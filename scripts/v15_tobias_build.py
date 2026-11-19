@@ -7,6 +7,10 @@ For phase dispatch8 ONLY, Matrix(pseudo_routing=True) uses Tobias's
 native CollisionFreeRouting/CollisionFreeRoutingHive. This does its own
 time-window reservation graph search, without teaching the GAT via Dijkstra.
 """
+#================ MODULE 00 - CẤU HÌNH HÀM BUILD V15 VÀ REWARD TOBIAS ================
+# Mục đích: Khai báo dispatch mask mode và các hệ số reward/interval của AnyLogic.
+# Giải thích: V16-B tái sử dụng builder này, chỉ thay Routing bằng Traffic-GATv2.
+
 from __future__ import annotations
 from pathlib import Path
 import os
@@ -31,9 +35,23 @@ TOBIAS_JOINT_REWARDS=dict(
 )
 
 
+
+#=========== KẾT THÚC MODULE 00 - CẤU HÌNH HÀM BUILD V15 VÀ REWARD TOBIAS ===========
+
+
+
+
+#================ MODULE 01 - KHỞI TẠO ENVIRONMENT, MAPPO VÀ CÁC ROLE ================
+# Mục đích: Tạo Matrix AnyLogic, GraphSpec, ba Actor/Critic và gắn optimizer.
+# Giải thích: Kiểm tra số slot AGV, graph fingerprint và checkpoint để tránh nhầm run.
+
 def build_v15(cfg, *, model_path, fleet_size, port, device, seed, max_events,
               sim_seconds=3600, checkpoint=None, phase='routing8'):
     """Construct V15; dispatch8 uses native Tobias pseudo-routing, all other phases GAT."""
+
+    #==================== PHẦN BUILD_V15-01 - XÁC NHẬN PHASE / FLEET ====================
+    # Không cho sai số AGV hoặc phase.
+
     from v15_staged_collector import PHASES
     if phase not in PHASES or int(fleet_size)!=PHASES[phase][0]:
         raise ValueError('V15 phase/fleet mismatch')
@@ -50,6 +68,10 @@ def build_v15(cfg, *, model_path, fleet_size, port, device, seed, max_events,
     from thesis.mappo.v15_tobias_arch import install_v15
 
     os.environ['MAPPO_DISPATCH_MASK_MODE']=TOBIAS_DISPATCH_MASK_MODE
+
+    #=================== PHẦN BUILD_V15-02 - TẠO ENVIRONMENT ANYLOGIC ===================
+    # Nối mô phỏng, cấu hình reward và chế độ routing.
+
     env=Matrix(model_path=str(Path(model_path).resolve()),
                startport=int(port),fleetsize=int(fleet_size),fleetsize_upper=None,
                max_fleetsize=20,sim_config=dict(TOBIAS_JOINT_REWARDS),
@@ -58,6 +80,10 @@ def build_v15(cfg, *, model_path, fleet_size, port, device, seed, max_events,
                routing_agent_death=True,death_on_target=False,
                transform_dispatching_partobs=True,direction_reward=-0.1)
     try:
+
+        #==================== PHẦN BUILD_V15-03 - RESET VÀ ĐỌC HIVE GRAPH ====================
+        # Khởi tạo trạng thái, kiểm tra router truyền thống khi dispatch8.
+
         env.reset(seed=int(seed))
         # Assert native Tobias conventional Routing is truly active in dispatch8.
         # Its actions are executed internally in BaseAlpyneZoo._collect():
@@ -73,6 +99,10 @@ def build_v15(cfg, *, model_path, fleet_size, port, device, seed, max_events,
                 raise RuntimeError('dispatch8 Routing unexpectedly marked for PPO training')
         elif bool(env.pseudo_routing):
             raise RuntimeError('Learned GAT phase cannot use conventional routing')
+
+        #===================== PHẦN BUILD_V15-04 - DỰNG ĐỒ THỊ CÓ HƯỚNG =====================
+        # Cấu trúc node, arc dùng cho GATv2.
+
         graph=GraphSpec.from_hive(env.agent_hive)
         if cfg.get('graph_fingerprint') and cfg['graph_fingerprint']!=graph.fingerprint:
             raise ValueError('Live AnyLogic graph differs from blueprint')
@@ -83,11 +113,19 @@ def build_v15(cfg, *, model_path, fleet_size, port, device, seed, max_events,
         if int(obs_space['stat'].shape[0])!=int(gs['stat'].shape[0]):
             raise ValueError('Station actor/global state row count mismatch')
         station_slots=int(gs['stat'].shape[0]);feat=int(gs['agvs'].shape[-1])
+
+        #======================= PHẦN BUILD_V15-05 - THIẾT LẬP BA ROLE =======================
+        # Routing có 5 action; Dispatch Front/Rear chọn trạm.
+
         roles={'routing':(obs_space,5),
                'dispatch_front':(obs_space,station_slots),
                'dispatch_rear':(obs_space,station_slots)}
         # The original MAPPO implementation and its config remain untouched.
         # Construct with lightweight placeholder actors, replace before EP0.
+
+        #================ PHẦN BUILD_V15-06 - TẠO MAPPO / CRITIC / OPTIMIZER ================
+        # Đọc siêu tham số, gắn hai Dispatch LinFE và GAT Routing.
+
         mcfg=MAPPOConfig(gamma=float(cfg['gamma']),gae_lambda=float(cfg['gae_lambda']),
              clip_epsilon=float(cfg['clip']),actor_lr=float(cfg['lr']),
              critic_lr=float(cfg['lr']),epochs=int(cfg['epochs']),
@@ -97,6 +135,10 @@ def build_v15(cfg, *, model_path, fleet_size, port, device, seed, max_events,
         model=MAPPO(roles,feat,mcfg,device=str(device))
         arch=install_v15(model,obs_space,feat,graph)
         enable_v7(model,V7Options(**dict(cfg['ppo_v7_options'])))
+
+        #===================== PHẦN BUILD_V15-07 - NẠP CHECKPOINT NẾU CÓ =====================
+        # Sử dụng checkpoint đã chọn thay vì train từ đầu.
+
         if checkpoint is not None: model.load(str(Path(checkpoint).resolve()))
         if getattr(model.roles['routing'].actor,'_b3_guide_dist',False):
             raise RuntimeError('Unexpected Dijkstra policy wrapper')
@@ -111,3 +153,9 @@ def build_v15(cfg, *, model_path, fleet_size, port, device, seed, max_events,
     except BaseException:
         env.close()
         raise
+
+#=========== KẾT THÚC MODULE 01 - KHỞI TẠO ENVIRONMENT, MAPPO VÀ CÁC ROLE ===========
+
+
+
+

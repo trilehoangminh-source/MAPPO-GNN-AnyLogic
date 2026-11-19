@@ -1,3 +1,10 @@
+#=============== GIẢI THÍCH FILE: KIẾN TRÚC GỐC V15 - GATV2/LINFE/CTDE ================
+# Lớp GATv2, GraphNorm, Actor Routing, Actor Dispatch và Centralized Critic để V16-B kế thừa.
+# BẢN ĐỌC HIỂU: chỉ bổ sung comment/khoảng trắng; KHÔNG thay đổi câu lệnh gốc.
+# Lưu ý: comment vẫn làm thay đổi SHA256 của file (cần init run mới nếu dùng train).
+#================================ HẾT GIỚI THIỆU FILE =================================
+
+
 """V15: Tobias-inspired neural architectures on pure PyTorch.
 
 Preserves the architectural pattern of Tobias's ma_gnn_routing.py and
@@ -10,13 +17,23 @@ No Dijkstra, no dynamic traffic features, no extra reward shaping.
 Routing intentionally uses NO action masking (Tobias joint-routing experiment).
 Dispatch action masking remains enabled and unchanged.
 """
+
+
+
+#========================= MODULE 01 - CÁC THƯ VIỆN / IMPORT ==========================
+# import/from trong Python tương tự #include ở C, nhưng có hệ thống module và package.
 from __future__ import annotations
 import math
 import torch
 from torch import nn
 from torch.distributions import Categorical
+#===================== KẾT THÚC MODULE 01 - CÁC THƯ VIỆN / IMPORT =====================
 
 
+
+
+#============================== MODULE 02 - HÀM _MASKED ===============================
+# Áp mặt nạ hợp lệ vào vector logits cho Dispatch.
 def _masked(logits, action_mask):
     # Exact math of thesis/mappo/networks.py:masked_logits (local copy for testability).
     # For Dispatch only; Routing uses the raw five logits without action masking.
@@ -26,23 +43,47 @@ def _masked(logits, action_mask):
     if (~valid.any(-1)).any():
         raise ValueError('No legal actions')
     return logits.masked_fill(~valid,torch.finfo(logits.dtype).min/2)
+#========================== KẾT THÚC MODULE 02 - HÀM _MASKED ==========================
 
 
+
+
+#=========================== MODULE 03 - LỚP TOBIASFOURIER ============================
+# Mã hóa tọa độ/mục tiêu thành Fourier features.
 class TobiasFourier(nn.Module):
     """Tobias's 4 Fourier frequencies per 2D point: sin/cos of 2*pi*B*x.
     Random B is frozen and included in checkpoints for exact resume.
     """
+
+
+    #============================ MODULE CON 01 - __INIT__ ============================
+    # Mục đích: Khởi tạo thuộc tính, tham số và bộ nhớ cho đối tượng.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def __init__(self, count=4):
         super().__init__()
         self.register_buffer('frequency', torch.randn(count, 2))
+    #======================= KẾT THÚC MODULE CON 01 - __INIT__ ========================
 
+
+
+
+    #============================ MODULE CON 02 - FORWARD =============================
+    # Mục đích: Tính phép biến đổi tensor theo luồng đi tới của mạng PyTorch.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def forward(self, x, columns):
         pos = torch.stack([x[..., c:c+2] for c in columns], dim=-2)
         radians = 2 * math.pi * torch.einsum('...pc,fc->...pf', pos, self.frequency)
         values = torch.stack((torch.sin(radians), torch.cos(radians)), -1)
         return torch.cat([x, values.flatten(-3)], dim=-1)
+    #======================== KẾT THÚC MODULE CON 02 - FORWARD ========================
+
+#======================= KẾT THÚC MODULE 03 - LỚP TOBIASFOURIER =======================
 
 
+
+
+#============================= MODULE 04 - HÀM _STACK_MLP =============================
+# Dựng MLP bằng danh sách kích thước lớp và activation.
 def _stack_mlp(in_dim, widths, bn_channels, activation):
     layers=[]
     last=in_dim
@@ -50,8 +91,13 @@ def _stack_mlp(in_dim, widths, bn_channels, activation):
         layers.extend([nn.Linear(last,d), activation(), nn.BatchNorm1d(bn_channels)])
         last=d
     return nn.Sequential(*layers)
+#======================== KẾT THÚC MODULE 04 - HÀM _STACK_MLP =========================
 
 
+
+
+#===================== MODULE 05 - LỚP TOBIASLINEARDISPATCHACTOR ======================
+# Actor LinFE phục vụ Dispatch Front/Rear.
 class TobiasLinearDispatchActor(nn.Module):
     """LinFE and 160->128->32->n action head from Tobias joint notebook.
 
@@ -59,6 +105,11 @@ class TobiasLinearDispatchActor(nn.Module):
     actual fleet count changes. No trainable candidate scoring or attention.
     """
     uses_action_mask = True
+
+
+    #============================ MODULE CON 01 - __INIT__ ============================
+    # Mục đích: Khởi tạo thuộc tính, tham số và bộ nhớ cho đối tượng.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def __init__(self, obs_space, n_actions, embedding=32):
         super().__init__()
         agv_slots=int(obs_space['agvs'].shape[0])
@@ -79,7 +130,14 @@ class TobiasLinearDispatchActor(nn.Module):
         self.action_net=nn.Sequential(nn.Linear(160,128),nn.ReLU(),
                                       nn.Linear(128,32),nn.ReLU(),
                                       nn.Linear(32,self.action_dim))
+    #======================= KẾT THÚC MODULE CON 01 - __INIT__ ========================
 
+
+
+
+    #============================= MODULE CON 02 - LOGITS =============================
+    # Mục đích: Tính vector điểm chưa chuẩn hóa cho các hành động khả thi.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def logits(self, obs):
         agv=obs['agvs'];stations=obs['stat']
         b,n,_=agv.shape
@@ -96,11 +154,25 @@ class TobiasLinearDispatchActor(nn.Module):
         features=torch.cat((ego_embed,other_embedding.mean(1),other_embedding.max(1).values,
                             stations_embedding.max(1).values,stations_embedding.mean(1)),-1)
         return self.action_net(features)
+    #======================== KẾT THÚC MODULE CON 02 - LOGITS =========================
 
+
+
+
+    #============================== MODULE CON 03 - DIST ==============================
+    # Mục đích: Tạo phân phối xác suất hành động Categorical từ logits của Actor.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def dist(self, obs):
         return Categorical(logits=_masked(self.logits(obs),obs['action_mask']))
+    #========================= KẾT THÚC MODULE CON 03 - DIST ==========================
+
+#================= KẾT THÚC MODULE 05 - LỚP TOBIASLINEARDISPATCHACTOR =================
 
 
+
+
+#============================ MODULE 06 - LỚP TOBIASGATV2 =============================
+# Lớp attention trên graph V15 không có thuộc tính cạnh động.
 class TobiasGATv2(nn.Module):
     """Dense directed GATv2 with 4 heads and concat=False, no residual/edge data.
 
@@ -108,6 +180,11 @@ class TobiasGATv2(nn.Module):
     105-node graph this avoids installing legacy PyG/torch_scatter/RLlib. The
     parameters are NOT interchangeable with torch_geometric.GATv2Conv.
     """
+
+
+    #============================ MODULE CON 01 - __INIT__ ============================
+    # Mục đích: Khởi tạo thuộc tính, tham số và bộ nhớ cho đối tượng.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def __init__(self, embedding=32, heads=4):
         super().__init__()
         self.embedding=embedding;self.heads=heads
@@ -116,7 +193,14 @@ class TobiasGATv2(nn.Module):
         self.att=nn.Parameter(torch.empty(heads,embedding))
         self.bias=nn.Parameter(torch.zeros(embedding))
         nn.init.xavier_uniform_(self.att)
+    #======================= KẾT THÚC MODULE CON 01 - __INIT__ ========================
 
+
+
+
+    #============================ MODULE CON 02 - FORWARD =============================
+    # Mục đích: Tự cài attention: chiếu node, tính attention score, softmax theo receiver và gom thông điệp.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def forward(self, x, edge_index):
         # x[B,N,D]; edge_index[2,E] has receiver row and sender row.
         # Sparse aggregation avoids O(B*heads*N*N*dim) dense memory.
@@ -142,23 +226,49 @@ class TobiasGATv2(nn.Module):
         result=torch.zeros((b,h,n,d),dtype=x.dtype,device=x.device)
         result.scatter_add_(2,index.unsqueeze(-1).expand(-1,-1,-1,d),weighted)
         return result.mean(1)+self.bias
+    #======================== KẾT THÚC MODULE CON 02 - FORWARD ========================
+
+#======================== KẾT THÚC MODULE 06 - LỚP TOBIASGATV2 ========================
 
 
+
+
+#========================== MODULE 07 - LỚP TOBIASGRAPHNORM ===========================
+# Chuẩn hóa node embedding giữa các lớp GAT.
 class TobiasGraphNorm(nn.Module):
     """GraphNorm per sample, including PyG's trainable mean_scale."""
+
+
+    #============================ MODULE CON 01 - __INIT__ ============================
+    # Mục đích: Khởi tạo thuộc tính, tham số và bộ nhớ cho đối tượng.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def __init__(self, embedding=32):
         super().__init__()
         self.weight=nn.Parameter(torch.ones(embedding))
         self.bias=nn.Parameter(torch.zeros(embedding))
         self.mean_scale=nn.Parameter(torch.ones(embedding))
+    #======================= KẾT THÚC MODULE CON 01 - __INIT__ ========================
 
+
+
+
+    #============================ MODULE CON 02 - FORWARD =============================
+    # Mục đích: Tính phép biến đổi tensor theo luồng đi tới của mạng PyTorch.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def forward(self,x):
         mean=x.mean(1,keepdim=True)
         centered=x-mean*self.mean_scale
         var=centered.square().mean(1,keepdim=True)
         return centered*(var+1e-5).rsqrt()*self.weight+self.bias
+    #======================== KẾT THÚC MODULE CON 02 - FORWARD ========================
+
+#====================== KẾT THÚC MODULE 07 - LỚP TOBIASGRAPHNORM ======================
 
 
+
+
+#====================== MODULE 08 - LỚP TOBIASGRAPHROUTINGACTOR =======================
+# Actor V15: 22 node features, 2 GATv2, 4 heads, 32 chiều, 5 action, không mask.
 class TobiasGraphRoutingActor(nn.Module):
     """Two GATv2Conv->GraphNorm layers, 4 heads, embedding=32, Tobias action head.
 
@@ -171,6 +281,11 @@ class TobiasGraphRoutingActor(nn.Module):
     """
     action_dim=5
     uses_action_mask = False
+
+
+    #============================ MODULE CON 01 - __INIT__ ============================
+    # Mục đích: Khởi tạo thuộc tính, tham số và bộ nhớ cho đối tượng.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def __init__(self, graph, embedding=32, heads=4, layers=2):
         super().__init__()
         if (embedding,heads,layers)!=(32,4,2):
@@ -191,7 +306,14 @@ class TobiasGraphRoutingActor(nn.Module):
         self.norms=nn.ModuleList([TobiasGraphNorm(32) for _ in range(2)])
         self.action_net=nn.Sequential(nn.Linear(160,128),nn.LeakyReLU(),
                                       nn.Linear(128,32),nn.LeakyReLU(),nn.Linear(32,5))
+    #======================= KẾT THÚC MODULE CON 01 - __INIT__ ========================
 
+
+
+
+    #========================= MODULE CON 02 - _NODE_INDICES ==========================
+    # Mục đích: Hàm nội bộ node indices; được gọi bởi các hàm cấp cao hơn.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def _node_indices(self, coords):
         # Padded rows are represented by (0,0) sentinel, exactly as Tobias.
         dif=(coords.unsqueeze(-2)-self.node_xy).abs().amax(-1)
@@ -199,12 +321,26 @@ class TobiasGraphRoutingActor(nn.Module):
         if (val>1e-3).any():
             raise ValueError('Observation coordinates not present in Tobias Hive graph')
         return idx
+    #===================== KẾT THÚC MODULE CON 02 - _NODE_INDICES =====================
 
+
+
+
+    #============================ MODULE CON 03 - _SCATTER ============================
+    # Mục đích: Đưa thông tin AGV vào node graph tương ứng.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def _scatter(self,values,idx,number):
         b,m,c=values.shape
         ret=torch.zeros((b,number,c),device=values.device,dtype=values.dtype)
         return ret.scatter_add(1,idx.unsqueeze(-1).expand(-1,-1,c),values)
+    #======================= KẾT THÚC MODULE CON 03 - _SCATTER ========================
 
+
+
+
+    #============================= MODULE CON 04 - LOGITS =============================
+    # Mục đích: Tạo 22 kênh node features từ các AGV/station/goal; chạy GAT và nối 4 node ứng viên vào action head.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def logits(self, obs):
         agvs,stations=obs['agvs'],obs['stat']
         if agvs.shape[-1]<19 or stations.shape[-1]<2:
@@ -238,14 +374,28 @@ class TobiasGraphRoutingActor(nn.Module):
         neighbor_idx=self._node_indices(ego[:,:,8:16].reshape(b,4,2))
         neighbors=torch.gather(node,1,neighbor_idx.unsqueeze(-1).expand(-1,-1,32)).flatten(1)
         return self.action_net(torch.cat((neighbors,goal_embed),-1))
+    #======================== KẾT THÚC MODULE CON 04 - LOGITS =========================
 
+
+
+
+    #============================== MODULE CON 05 - DIST ==============================
+    # Mục đích: Phân phối 5 hành động không mask để giữ thí nghiệm giống Tobias.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def dist(self,obs):
         # Tobias routing experiment: no action mask on the network output.
         # Illegal directions remain sampleable and are handled by AnyLogic.
         # Keeping five logits preserves the V15 checkpoint architecture.
         return Categorical(logits=self.logits(obs))
+    #========================= KẾT THÚC MODULE CON 05 - DIST ==========================
+
+#================== KẾT THÚC MODULE 08 - LỚP TOBIASGRAPHROUTINGACTOR ==================
 
 
+
+
+#========================== MODULE 09 - LỚP V15CENTRALCRITIC ==========================
+# Critic tập trung MLP trên AGV + station + ego state.
 class V15CentralCritic(nn.Module):
     """CTDE value network: full physical global state, per-role 160->128->128->32->1.
 
@@ -253,6 +403,11 @@ class V15CentralCritic(nn.Module):
     not Tobias's original local RLlib value function: it is intentionally
     centralized, consistent with MAPPO's global_state interface.
     """
+
+
+    #============================ MODULE CON 01 - __INIT__ ============================
+    # Mục đích: Khởi tạo thuộc tính, tham số và bộ nhớ cho đối tượng.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def __init__(self, feature_dim, embedding=32):
         super().__init__()
         if embedding!=32: raise ValueError('Expected embedding=32')
@@ -260,7 +415,14 @@ class V15CentralCritic(nn.Module):
         self.station=nn.Sequential(nn.Linear(feature_dim,32),nn.Tanh(),nn.Linear(32,32),nn.Tanh())
         self.value_head=nn.Sequential(nn.Linear(160,128),nn.ReLU(),nn.Linear(128,128),nn.ReLU(),
                                       nn.Linear(128,32),nn.ReLU(),nn.Linear(32,1))
+    #======================= KẾT THÚC MODULE CON 01 - __INIT__ ========================
 
+
+
+
+    #============================= MODULE CON 02 - _POOL ==============================
+    # Mục đích: Gộp đặc trưng nhiều thực thể thành vector cố định.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     @staticmethod
     def _pool(v,mask):
         weight=mask.unsqueeze(-1)
@@ -268,7 +430,14 @@ class V15CentralCritic(nn.Module):
         maximum=v.masked_fill(~mask.unsqueeze(-1),torch.finfo(v.dtype).min/4).max(1).values
         maximum=torch.where(mask.any(1,keepdim=True),maximum,torch.zeros_like(maximum))
         return mean,maximum
+    #========================= KẾT THÚC MODULE CON 02 - _POOL =========================
 
+
+
+
+    #============================ MODULE CON 03 - FORWARD =============================
+    # Mục đích: Xử lý global AGV/station state và ego để xuất một giá trị V(s) cho Critic.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def forward(self,state):
         a,s,idx=state['agvs'],state['stat'],state['ego']
         b,n,_=a.shape
@@ -282,8 +451,15 @@ class V15CentralCritic(nn.Module):
         am,ax=self._pool(ae,other)
         sm,sx=self._pool(se,s.abs().sum(-1)>0)
         return self.value_head(torch.cat((ego,am,ax,sm,sx),-1)).squeeze(-1)
+    #======================== KẾT THÚC MODULE CON 03 - FORWARD ========================
+
+#===================== KẾT THÚC MODULE 09 - LỚP V15CENTRALCRITIC ======================
 
 
+
+
+#============================ MODULE 10 - HÀM INSTALL_V15 =============================
+# Thay actor/critic placeholder thành mạng Tobias V15 và tạo optimizer tương ứng.
 def install_v15(model, obs_space, global_feature_dim, graph):
     """Install source-pattern architectures BEFORE EP0, rebuilding Adam from scratch."""
     required={'routing','dispatch_front','dispatch_rear'}
@@ -304,3 +480,6 @@ def install_v15(model, obs_space, global_feature_dim, graph):
                 critics='per_role_CentralizedMLP_160_128_128_32_1',
                 original_libraries_needed=False,torch_geometric_weights_compatible=False,
                 dijkstra=False)
+#======================== KẾT THÚC MODULE 10 - HÀM INSTALL_V15 ========================
+
+

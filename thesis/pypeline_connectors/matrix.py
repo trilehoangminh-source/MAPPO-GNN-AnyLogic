@@ -1,12 +1,32 @@
+#======================= GIẢI THÍCH FILE: CONNECTOR MATRIX GỐC ========================
+# Nhận cấu hình, áp policy hoặc logic được cấu hình vào môi trường Matrix.
+# BẢN ĐỌC HIỂU: chỉ bổ sung comment/khoảng trắng; KHÔNG thay đổi câu lệnh gốc.
+# Lưu ý: comment vẫn làm thay đổi SHA256 của file (cần init run mới nếu dùng train).
+#================================ HẾT GIỚI THIỆU FILE =================================
+
+
+
+
+
+#========================= MODULE 01 - CÁC THƯ VIỆN / IMPORT ==========================
+# import/from trong Python tương tự #include ở C, nhưng có hệ thống module và package.
 import json
 import ray.rllib.algorithms.ppo as ppo
 import ray.rllib.algorithms.dqn as dqn
 from ..utils.double_trainer import DoubleTrainer, TripleTrainer
 from alpyne.data.spaces import Observation
 from ..utils.utils import get_config, setup_ray
+#===================== KẾT THÚC MODULE 01 - CÁC THƯ VIỆN / IMPORT =====================
+
+
 
 ### SETUP ###
 setup_ray(port=51160, unidirectional=True)
+
+
+
+#======================= MODULE 02 - HẰNG SỐ VÀ CẤU HÌNH CHUNG ========================
+# Các biến module được đọc bởi các hàm/lớp bên dưới; gần với biến toàn cục trong C.
 pseudo = True
 model_path = "../../models/matrix_routing/09_rew_block_-20_8_20_2023-05-01_22-56-02"#minimatrix_dispatching/06_mat_rout__4_30_2023-01-13_18-43-09"
 checkpoint = 400
@@ -41,14 +61,24 @@ env = trainer.workers.local_worker().env.env
 if pseudo:  
     env.reset(options = {"dont_collect": True})
 env_config = env.config
+#=================== KẾT THÚC MODULE 02 - HẰNG SỐ VÀ CẤU HÌNH CHUNG ===================
 
 
+
+
+#============================= MODULE 03 - HÀM GET_CONFIG =============================
+# Trả cấu hình thí nghiệm/mô phỏng cho connector.
 def get_config(id: str):
     if id in env_config.names():
         return env_config.values()[env_config.names().index(id)]
     return "NOT FOUND"
+#======================== KẾT THÚC MODULE 03 - HÀM GET_CONFIG =========================
 
 
+
+
+#============================= MODULE 04 - HÀM GET_ACTION =============================
+# Nhận observation và trả action tương thích connector của module.
 def get_action(observation, caller, n_nodes, context, statTitles, statValues, time):
     alpyne_obs = Observation(
         obs=observation, caller=caller, n_nodes=n_nodes, networkcontext=context, rew=0, statTitles = statTitles, statValues = statValues
@@ -70,3 +100,6 @@ def get_action(observation, caller, n_nodes, context, statTitles, statValues, ti
 
     else:
         return env.agent_behaviors[agent].get_action(alpyne_obs, time=time)
+#======================== KẾT THÚC MODULE 04 - HÀM GET_ACTION =========================
+
+

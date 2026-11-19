@@ -1,3 +1,15 @@
+#================== GIẢI THÍCH FILE: ROUTING GNN GỐC TOBIAS (RLlib) ===================
+# Feature extractor và actor Routing gốc dùng làm cơ sở tham khảo cho V15 và V16-B.
+# BẢN ĐỌC HIỂU: chỉ bổ sung comment/khoảng trắng; KHÔNG thay đổi câu lệnh gốc.
+# Lưu ý: comment vẫn làm thay đổi SHA256 của file (cần init run mới nếu dùng train).
+#================================ HẾT GIỚI THIỆU FILE =================================
+
+
+
+
+
+#========================= MODULE 01 - CÁC THƯ VIỆN / IMPORT ==========================
+# import/from trong Python tương tự #include ở C, nhưng có hệ thống module và package.
 import gym.spaces
 from ray.rllib.utils.typing import ModelConfigDict
 from torch import nn
@@ -9,12 +21,28 @@ from torch_geometric.data import Data, Batch
 from torch_geometric.nn import Sequential, GATv2Conv, GraphNorm
 from torch_geometric.utils import scatter, k_hop_subgraph
 from torch_scatter import scatter
+#===================== KẾT THÚC MODULE 01 - CÁC THƯ VIỆN / IMPORT =====================
 
+
+
+
+#========================= MODULE 02 - HÀM REGISTER_GNN_MODEL =========================
+# Đăng ký mạng GNN của Tobias vào RLlib.
 def register_gnn_model():
     ModelCatalog.register_custom_model("gnn_model", GNNRoutingNet)
+#==================== KẾT THÚC MODULE 02 - HÀM REGISTER_GNN_MODEL =====================
 
 
+
+
+#======================== MODULE 03 - LỚP GNNFEATUREEXTRACTOR =========================
+# Feature extractor GNN gốc Tobias cho Routing, gom AGV, station, mục tiêu theo node.
 class GNNFeatureExtractor(nn.Module):
+
+
+    #============================ MODULE CON 01 - __INIT__ ============================
+    # Mục đích: Khởi tạo thuộc tính, tham số và bộ nhớ cho đối tượng.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def __init__(
         self,
         type,
@@ -60,9 +88,14 @@ class GNNFeatureExtractor(nn.Module):
                 ]
             )
         self.node_convolutions = Sequential("x, edge_index, batch", node_convs)
+    #======================= KẾT THÚC MODULE CON 01 - __INIT__ ========================
 
 
 
+
+    #========================== MODULE CON 02 - GET_EMBEDDER ==========================
+    # Mục đích: Truy xuất embedder từ trạng thái/dữ liệu đã lưu.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def get_embedder(self, n_features, embed_dim, n_objects, activation, d2=True):
         return nn.Sequential(
             nn.Linear(n_features, embed_dim * 2),
@@ -72,8 +105,15 @@ class GNNFeatureExtractor(nn.Module):
             activation(),
             nn.BatchNorm2d(n_objects) if d2 else nn.BatchNorm1d(n_objects),
         )
+    #===================== KẾT THÚC MODULE CON 02 - GET_EMBEDDER ======================
 
 
+
+
+
+    #============================ MODULE CON 03 - FORWARD =============================
+    # Mục đích: Scatter thông tin xe/trạm vào node graph rồi đi qua GAT để lấy đặc trưng Routing.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def forward(self, x):
         coords:torch.Tensor = x["agvs"][:, :, 2:16].reshape(x["agvs"].shape[0], -1, 7, 2) 
         distance_percentage = x["agvs"][:, :, 16:18]
@@ -133,10 +173,21 @@ class GNNFeatureExtractor(nn.Module):
             in_reach_indices.unsqueeze(-1).repeat(1, 1, convoluted_by_batch.shape[-1]),
         )
         return torch.concat([filtered_in_reach.flatten(1), goal_features], dim = 1)
+    #======================== KẾT THÚC MODULE CON 03 - FORWARD ========================
+
+#==================== KẾT THÚC MODULE 03 - LỚP GNNFEATUREEXTRACTOR ====================
 
 
 
+
+#=========================== MODULE 04 - LỚP GNNROUTINGNET ============================
+# Mạng Q/Policy Routing dựa trên GNN trong RLlib gốc.
 class GNNRoutingNet(TorchModelV2, nn.Module):
+
+
+    #============================ MODULE CON 01 - __INIT__ ============================
+    # Mục đích: Khởi tạo thuộc tính, tham số và bộ nhớ cho đối tượng.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def __init__(
         self,
         obs_space: gym.spaces.Space,
@@ -214,8 +265,15 @@ class GNNRoutingNet(TorchModelV2, nn.Module):
             self.activation(),
             nn.Linear(self.embed_dim, 1),
         )
+    #======================= KẾT THÚC MODULE CON 01 - __INIT__ ========================
 
 
+
+
+
+    #============================ MODULE CON 02 - FORWARD =============================
+    # Mục đích: Tạo output Routing từ GNN Feature Extractor trong kiến trúc gốc Tobias.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def forward(self, obsdict, state, seq_lengths):
         self.obs = obsdict["obs"]
         self.features:torch.Tensor = self.fe(self.obs)
@@ -239,6 +297,18 @@ class GNNRoutingNet(TorchModelV2, nn.Module):
         if self.with_action_mask:
             action_out[obsdict["obs"]["action_mask"] == 0] = -1e8
         return action_out.flatten(1), []
+    #======================== KẾT THÚC MODULE CON 02 - FORWARD ========================
 
+
+
+
+    #========================= MODULE CON 03 - VALUE_FUNCTION =========================
+    # Mục đích: Trả ước lượng giá trị trạng thái dùng cho Critic.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def value_function(self):
         return self.value_net(self.features).flatten()
+    #==================== KẾT THÚC MODULE CON 03 - VALUE_FUNCTION =====================
+
+#======================= KẾT THÚC MODULE 04 - LỚP GNNROUTINGNET =======================
+
+

@@ -9,6 +9,10 @@ Examples:
   python scripts/plot_mappo_training_timesteps.py --folders mappo_runs/V8_15AGV_fromV7_5h
   python scripts/plot_mappo_training_timesteps.py --folders mappo_runs/V8_15AGV_fromV7_5h mappo_runs/V8_20AGV_from15_5h
 """
+#================== MODULE 00 - NẠP THƯ VIỆN VÀ KHAI BÁO SÁU CHỈ SỐ ==================
+# Mục đích: Dùng Matplotlib để vẽ 6 ô: Reward, Target, Blocks, JobDone, WrongTarget, LiveLock.
+# Giải thích: Trục X cộng dồn closed_transitions có thật, không giả định bằng thời gian mô phỏng.
+
 from __future__ import annotations
 import argparse
 import csv
@@ -30,6 +34,16 @@ PANELS = (
 )
 
 
+
+#============= KẾT THÚC MODULE 00 - NẠP THƯ VIỆN VÀ KHAI BÁO SÁU CHỈ SỐ =============
+
+
+
+
+#===================== MODULE 01 - CHUYỂN GIÁ TRỊ SANG SỐ HỢP LỆ =====================
+# Mục đích: Đổi sang float; loại bool, None, NaN, vô cực và chuỗi lỗi.
+# Giải thích: Giúp dữ liệu lỗi không khiến đồ thị báo sai.
+
 def numerical(v):
     if isinstance(v, bool) or v is None:
         return None
@@ -39,8 +53,22 @@ def numerical(v):
     except (ValueError, TypeError):
         return None
 
+#================ KẾT THÚC MODULE 01 - CHUYỂN GIÁ TRỊ SANG SỐ HỢP LỆ ================
+
+
+
+
+
+
+#=================== MODULE 02 - ĐỌC LOG TRAINING TỪ METRICS.JSONL ===================
+# Mục đích: Mỗi dòng JSON là một episode; kiểm tra trường environment và closed_transitions.
+# Giải thích: Xuất danh sách episode, reward, thống kê AGV và số transition.
 
 def episode_rows(folder: Path):
+
+    #====================== PHẦN EPISODE_ROWS-01 - MỞ LOG TRAINING ======================
+    # Kiểm tra dữ liệu từng episode và số closed_transitions hợp lệ.
+
     path = folder/'metrics.jsonl'
     if not path.is_file():
         raise FileNotFoundError(f'No recorded training data: {path}')
@@ -66,6 +94,10 @@ def episode_rows(folder: Path):
             stats = env.get('statistics') or {}
             if not isinstance(stats,dict):
                 stats = {}
+
+            #=================== PHẦN EPISODE_ROWS-02 - LỌC METRIC QUAN TRỌNG ===================
+            # Đọc reward, targetReached, Blocks, JobDone, WrongTarget, LiveLock.
+
             data = {
                 'episode': int(episode),
                 'transitions': int(steps),
@@ -84,6 +116,16 @@ def episode_rows(folder: Path):
         raise ValueError(f'{path} has duplicate episode records')
     return result
 
+#============== KẾT THÚC MODULE 02 - ĐỌC LOG TRAINING TỪ METRICS.JSONL ==============
+
+
+
+
+
+
+#=================== MODULE 03 - GHÉP CÁC GIAI ĐOẠN THEO TRÌNH TỰ ===================
+# Mục đích: Đọc nhiều run theo thứ tự; cộng dồn transition giữa các run liên tiếp.
+# Giải thích: Lấy số AGV từ run_config.json, không đoán theo tên thư mục.
 
 def load_training_phases(folders):
     """Carry timesteps across adjacent phases, never invent the missing V7 steps."""
@@ -111,6 +153,16 @@ def load_training_phases(folders):
         last_episode = rows[-1]['episode']
     return result
 
+#=============== KẾT THÚC MODULE 03 - GHÉP CÁC GIAI ĐOẠN THEO TRÌNH TỰ ===============
+
+
+
+
+
+
+#========================= MODULE 04 - TÍNH TRUNG BÌNH TRƯỢT =========================
+# Mục đích: Với cửa sổ w: tính trung bình các điểm gần nhất có dữ liệu.
+# Giải thích: Tương tự bộ lọc trung bình trượt trong xử lý tín hiệu.
 
 def moving_average(values, w):
     result = []
@@ -119,11 +171,29 @@ def moving_average(values, w):
         result.append(sum(seq)/len(seq) if seq else float('nan'))
     return result
 
+#==================== KẾT THÚC MODULE 04 - TÍNH TRUNG BÌNH TRƯỢT ====================
+
+
+
+
+
+
+#======================= MODULE 05 - VẼ SÁU ĐỒ THỊ VÀ XUẤT CSV =======================
+# Mục đích: Vẽ điểm thô mờ + đường trung bình trượt cho từng phase.
+# Giải thích: Xuất PNG, PDF và CSV, ghi rõ định nghĩa trục X.
 
 def plot(phases, output, window):
     import matplotlib.ticker as ticker
+
+    #========================= PHẦN PLOT-01 - TẠO KHUNG 6 ĐỒ THỊ =========================
+    # Mỗi trục chứa một metric theo cumulative transitions.
+
     fig, axs = plt.subplots(3,2,figsize=(13.5,12),constrained_layout=True)
     colors=('#ba2149','#5446a3','#207f76','#cd8c10')
+
+    #======================== PHẦN PLOT-02 - VẼ ĐƯỜNG THEO PHASE ========================
+    # Đường dữ liệu thô và trung bình trượt.
+
     for ax, (key,title,ylab) in zip(axs.ravel(),PANELS):
         for idx,(folder,fleet,rows) in enumerate(phases):
             relevant=[r for r in rows if r[key] is not None]
@@ -151,6 +221,10 @@ def plot(phases, output, window):
         fig.savefig(dst,dpi=240,bbox_inches='tight')
         print('[SAVED]',dst)
     plt.close(fig)
+
+    #==================== PHẦN PLOT-03 - XUẤT CSV CHO PHÂN TÍCH TIẾP ====================
+    # Có thể dùng Excel/Python để đối chiếu episode.
+
     csvfile=output.parent/'training_timesteps_data.csv'
     fields=['source_run','fleetsize','episode','transitions','cumulative_transitions']+[p[0] for p in PANELS]
     with csvfile.open('w',encoding='utf-8-sig',newline='') as handle:
@@ -162,6 +236,16 @@ def plot(phases, output, window):
     print('NOTE: cumulative counts start at first logged episode in first listed run.')
     print('NOTE: author paper "Training Steps" may use a different step definition; verify before comparing x-axis magnitudes.')
 
+#================== KẾT THÚC MODULE 05 - VẼ SÁU ĐỒ THỊ VÀ XUẤT CSV ==================
+
+
+
+
+
+
+#=================== MODULE 06 - NHẬN THAM SỐ LỆNH VÀ KHỞI CHẠY VẼ ===================
+# Mục đích: Đọc danh sách thư mục, window và đường dẫn đầu ra từ terminal.
+# Giải thích: In dữ liệu nguồn rồi gọi plot().
 
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
@@ -178,5 +262,21 @@ def main(argv=None):
               f'last recorded timestep {rows[-1]["cumulative_transitions"]}')
     plot(phases,args.out,args.window)
 
+#============== KẾT THÚC MODULE 06 - NHẬN THAM SỐ LỆNH VÀ KHỞI CHẠY VẼ ==============
+
+
+
+
+
+#====================== MODULE 07 - ĐIỂM VÀO SCRIPT VẼ TRAINING ======================
+# Mục đích: Chỉ chạy main() khi gọi file trực tiếp.
+# Giải thích: Không tương tác và không làm thay đổi mô hình AnyLogic.
+
 if __name__=='__main__':
     main()
+
+#================= KẾT THÚC MODULE 07 - ĐIỂM VÀO SCRIPT VẼ TRAINING =================
+
+
+
+

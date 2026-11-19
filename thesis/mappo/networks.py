@@ -1,3 +1,10 @@
+#==================== GIẢI THÍCH FILE: MẠNG TỔNG QUÁT ACTOR-CRITIC ====================
+# Cung cấp Encoder/Actor/CentralCritic cơ sở; V16-B lắp kiến trúc Tobias chuyên biệt ở bước build.
+# BẢN ĐỌC HIỂU: chỉ bổ sung comment/khoảng trắng; KHÔNG thay đổi câu lệnh gốc.
+# Lưu ý: comment vẫn làm thay đổi SHA256 của file (cần init run mới nếu dùng train).
+#================================ HẾT GIỚI THIỆU FILE =================================
+
+
 """CTDE architectures compatible with original Matrix observations.
 
 Actor input is the ORIGINAL transformed observation (agvs/stat/action_mask).
@@ -5,13 +12,23 @@ Critic input is a separate deterministic RAW physical state, provided by Matrix.
 For the main experiment, select original_gnn and original_linear backbones.
 A dependency-light pooled backbone is provided for CPU unit tests/ablations.
 """
+
+
+
+#========================= MODULE 01 - CÁC THƯ VIỆN / IMPORT ==========================
+# import/from trong Python tương tự #include ở C, nhưng có hệ thống module và package.
 from __future__ import annotations
 
 import torch
 from torch import nn
 from torch.distributions import Categorical
+#===================== KẾT THÚC MODULE 01 - CÁC THƯ VIỆN / IMPORT =====================
 
 
+
+
+#=========================== MODULE 02 - HÀM MASKED_LOGITS ============================
+# Đặt logits hành động bị cấm thành giá trị rất âm; Routing V16-B cố ý không dùng hàm này.
 def masked_logits(logits, mask):
     """Safe hard action mask; never silently enable padding actions."""
     if mask.shape != logits.shape:
@@ -20,21 +37,38 @@ def masked_logits(logits, mask):
     if (~valid.any(-1)).any():
         raise ValueError("Environment produced an action mask without valid actions")
     return logits.masked_fill(~valid, torch.finfo(logits.dtype).min / 2)
+#======================= KẾT THÚC MODULE 02 - HÀM MASKED_LOGITS =======================
 
 
+
+
+#=========================== MODULE 03 - LỚP ENTITYENCODER ============================
+# Mã hóa thông tin AGV/station và pool ra vector đặc trưng.
 class EntityEncoder(nn.Module):
     """Permutation-invariant aggregation of other AGVs and stations.
 
     Separately embeds deciding AGV, other AGVs, and station features.
     Zero-padded entities are excluded from their mean/max aggregation.
     """
+
+
+    #============================ MODULE CON 01 - __INIT__ ============================
+    # Mục đích: Khởi tạo thuộc tính, tham số và bộ nhớ cho đối tượng.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def __init__(self, feature_dim: int, hidden: int = 64):
         super().__init__()
         self.main = nn.Sequential(nn.Linear(feature_dim, hidden), nn.Tanh(), nn.Linear(hidden, hidden), nn.Tanh())
         self.other = nn.Sequential(nn.Linear(feature_dim, hidden), nn.Tanh(), nn.Linear(hidden, hidden), nn.Tanh())
         self.station = nn.Sequential(nn.Linear(feature_dim, hidden), nn.Tanh(), nn.Linear(hidden, hidden), nn.Tanh())
         self.output_dim = hidden * 5
+    #======================= KẾT THÚC MODULE CON 01 - __INIT__ ========================
 
+
+
+
+    #============================= MODULE CON 02 - _POOL ==============================
+    # Mục đích: Gộp đặc trưng nhiều thực thể thành vector cố định.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def _pool(self, feats, mask):
         mask = mask.unsqueeze(-1)
         mean = (feats * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1)
@@ -42,7 +76,14 @@ class EntityEncoder(nn.Module):
         maximum = feats.masked_fill(~mask.bool(), neg).max(dim=1).values
         maximum = torch.where(mask.any(dim=1), maximum, torch.zeros_like(maximum))
         return mean, maximum
+    #========================= KẾT THÚC MODULE CON 02 - _POOL =========================
 
+
+
+
+    #============================ MODULE CON 03 - FORWARD =============================
+    # Mục đích: Tính phép biến đổi tensor theo luồng đi tới của mạng PyTorch.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def forward(self, obs):
         agvs, stat = obs['agvs'], obs['stat']
         ego = agvs[:, 0]
@@ -57,9 +98,21 @@ class EntityEncoder(nn.Module):
         else:
             smean = smax = torch.zeros_like(ego_features)
         return torch.cat([ego_features, omean, omax, smean, smax], dim=-1)
+    #======================== KẾT THÚC MODULE CON 03 - FORWARD ========================
+
+#======================= KẾT THÚC MODULE 03 - LỚP ENTITYENCODER =======================
 
 
+
+
+#=============================== MODULE 04 - LỚP ACTOR ================================
+# Actor tổng quát, tạo phân phối Categorical cho role tương ứng.
 class Actor(nn.Module):
+
+
+    #============================ MODULE CON 01 - __INIT__ ============================
+    # Mục đích: Khởi tạo thuộc tính, tham số và bộ nhớ cho đối tượng.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def __init__(self, obs_space, role: str, action_dim: int, backbone: str, hidden: int = 64, env_type: str = 'matrix'):
         super().__init__()
         self.role = role
@@ -87,12 +140,26 @@ class Actor(nn.Module):
             raise ValueError(f'Unsupported actor backbone: {role=} {backbone=}')
         self.policy = nn.Sequential(nn.Linear(encoding_dim, hidden * 2), nn.Tanh(), nn.Linear(hidden * 2, action_dim))
         self.action_dim = action_dim
+    #======================= KẾT THÚC MODULE CON 01 - __INIT__ ========================
 
+
+
+
+    #============================== MODULE CON 02 - DIST ==============================
+    # Mục đích: Tạo phân phối xác suất hành động Categorical từ logits của Actor.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def dist(self, observation):
         logits = self.policy(self.encoder(observation))
         return Categorical(logits=masked_logits(logits, observation['action_mask']))
+    #========================= KẾT THÚC MODULE CON 02 - DIST ==========================
+
+#=========================== KẾT THÚC MODULE 04 - LỚP ACTOR ===========================
 
 
+
+
+#=========================== MODULE 05 - LỚP CENTRALCRITIC ============================
+# Critic dùng state toàn cục thay vì chỉ quan sát của actor.
 class CentralCritic(nn.Module):
     """Value(s, ego) from unshuffled ALL-AGV/station physical state.
 
@@ -100,12 +167,24 @@ class CentralCritic(nn.Module):
     Critic sees the current physical AGV in absolute index order and every
     station. The role has its own critic/value normalizer.
     """
+
+
+    #============================ MODULE CON 01 - __INIT__ ============================
+    # Mục đích: Khởi tạo thuộc tính, tham số và bộ nhớ cho đối tượng.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def __init__(self, feature_dim: int, hidden: int = 64):
         super().__init__()
         self.agv = nn.Sequential(nn.Linear(feature_dim, hidden), nn.Tanh(), nn.Linear(hidden, hidden), nn.Tanh())
         self.stat = nn.Sequential(nn.Linear(feature_dim, hidden), nn.Tanh(), nn.Linear(hidden, hidden), nn.Tanh())
         self.head = nn.Sequential(nn.Linear(hidden * 5, hidden * 2), nn.Tanh(), nn.Linear(hidden * 2, hidden), nn.Tanh(), nn.Linear(hidden, 1))
+    #======================= KẾT THÚC MODULE CON 01 - __INIT__ ========================
 
+
+
+
+    #============================== MODULE CON 02 - POOL ==============================
+    # Mục đích: Gộp đặc trưng nhiều thực thể thành vector cố định.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     @staticmethod
     def pool(x, valid):
         m = valid.unsqueeze(-1)
@@ -114,7 +193,14 @@ class CentralCritic(nn.Module):
         maximum = x.masked_fill(~m, neg).max(1).values
         maximum = torch.where(m.any(1), maximum, torch.zeros_like(maximum))
         return mean, maximum
+    #========================= KẾT THÚC MODULE CON 02 - POOL ==========================
 
+
+
+
+    #============================ MODULE CON 03 - FORWARD =============================
+    # Mục đích: Tính phép biến đổi tensor theo luồng đi tới của mạng PyTorch.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def forward(self, global_state):
         agvs, stations, indices = global_state['agvs'], global_state['stat'], global_state['ego']
         if (indices < 0).any() or (indices >= agvs.shape[1]).any():
@@ -129,3 +215,8 @@ class CentralCritic(nn.Module):
         a_mean, a_max = self.pool(agv_emb, agv_valid)
         s_mean, s_max = self.pool(stat_emb, stations.abs().sum(-1) > 0)
         return self.head(torch.cat([ego, a_mean, a_max, s_mean, s_max], -1)).squeeze(-1)
+    #======================== KẾT THÚC MODULE CON 03 - FORWARD ========================
+
+#======================= KẾT THÚC MODULE 05 - LỚP CENTRALCRITIC =======================
+
+

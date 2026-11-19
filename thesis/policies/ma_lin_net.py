@@ -1,3 +1,15 @@
+#================= GIẢI THÍCH FILE: DISPATCH LINFE GỐC TOBIAS (RLlib) =================
+# Mạng Linear Feature Extractor gốc để chọn trạm cho Dispatch.
+# BẢN ĐỌC HIỂU: chỉ bổ sung comment/khoảng trắng; KHÔNG thay đổi câu lệnh gốc.
+# Lưu ý: comment vẫn làm thay đổi SHA256 của file (cần init run mới nếu dùng train).
+#================================ HẾT GIỚI THIỆU FILE =================================
+
+
+
+
+
+#========================= MODULE 01 - CÁC THƯ VIỆN / IMPORT ==========================
+# import/from trong Python tương tự #include ở C, nhưng có hệ thống module và package.
 import gym.spaces
 from torch import nn
 import torch
@@ -5,13 +17,28 @@ from ray.rllib.models.torch.torch_modelv2 import TorchModelV2
 from ray.rllib.utils.typing import ModelConfigDict
 from ray.rllib.models import ModelCatalog
 from .custom_blocks import MatrixPositionEmbedder, FourierFeatureEmbedder
+#===================== KẾT THÚC MODULE 01 - CÁC THƯ VIỆN / IMPORT =====================
 
 
+
+
+#========================= MODULE 02 - HÀM REGISTER_LIN_MODEL =========================
+# Đăng ký mạng LinFE của Tobias vào RLlib.
 def register_lin_model():
     ModelCatalog.register_custom_model("lin_model", MALinPolicy)
+#==================== KẾT THÚC MODULE 02 - HÀM REGISTER_LIN_MODEL =====================
 
 
+
+
+#=============================== MODULE 03 - LỚP LINFE ================================
+# Mã hóa đặc trưng tuyến tính cho Dispatch từ observation của AGV/trạm.
 class LinFE(nn.Module):
+
+
+    #============================ MODULE CON 01 - __INIT__ ============================
+    # Mục đích: Khởi tạo thuộc tính, tham số và bộ nhớ cho đối tượng.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def __init__(
         self,
         obs_space,
@@ -89,7 +116,14 @@ class LinFE(nn.Module):
                 activation(),
                 nn.BatchNorm1d(n_stat),
             )
+    #======================= KẾT THÚC MODULE CON 01 - __INIT__ ========================
 
+
+
+
+    #============================ MODULE CON 02 - FORWARD =============================
+    # Mục đích: Trích xuất đặc trưng tuyến tính AGV/trạm dùng cho quyết định Dispatch.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def forward(self, obs):
         features = []
         main_data = obs["agvs"][:, 0:1]
@@ -133,9 +167,21 @@ class LinFE(nn.Module):
             features.append(features_stations_mean)
 
         return torch.concat(features, 1)
+    #======================== KẾT THÚC MODULE CON 02 - FORWARD ========================
+
+#=========================== KẾT THÚC MODULE 03 - LỚP LINFE ===========================
 
 
+
+
+#============================ MODULE 04 - LỚP MALINPOLICY =============================
+# Policy Dispatch bản RLlib dựa trên LinFE.
 class MALinPolicy(TorchModelV2, nn.Module):
+
+
+    #============================ MODULE CON 01 - __INIT__ ============================
+    # Mục đích: Khởi tạo thuộc tính, tham số và bộ nhớ cho đối tượng.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def __init__(
         self,
         obs_space: gym.spaces.Space,
@@ -213,7 +259,14 @@ class MALinPolicy(TorchModelV2, nn.Module):
             self.activation(),
             nn.Linear(self.embed_dim, 1),
         )
+    #======================= KẾT THÚC MODULE CON 01 - __INIT__ ========================
 
+
+
+
+    #============================ MODULE CON 02 - FORWARD =============================
+    # Mục đích: Tạo logits/xác suất lựa chọn trạm từ LinFE.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def forward(self, obsdict, state, seq_lengths):
         self.obs = obsdict["obs"]
         self.features = self.fe(self.obs)
@@ -230,6 +283,18 @@ class MALinPolicy(TorchModelV2, nn.Module):
         if self.with_action_mask:
             action_out = action_out + (obsdict["obs"]["action_mask"] - 1) * 1e8
         return action_out.flatten(1), []
+    #======================== KẾT THÚC MODULE CON 02 - FORWARD ========================
 
+
+
+
+    #========================= MODULE CON 03 - VALUE_FUNCTION =========================
+    # Mục đích: Trả ước lượng giá trị trạng thái dùng cho Critic.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def value_function(self):
         return self.value_net(self.features).flatten()
+    #==================== KẾT THÚC MODULE CON 03 - VALUE_FUNCTION =====================
+
+#======================== KẾT THÚC MODULE 04 - LỚP MALINPOLICY ========================
+
+

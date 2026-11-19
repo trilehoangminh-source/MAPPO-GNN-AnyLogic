@@ -1,3 +1,10 @@
+#==================== GIẢI THÍCH FILE: THỰC NGHIỆM MẶT NẠ DISPATCH ====================
+# Chọn trạm hợp lệ theo công đoạn sản xuất. Đây là biến thể thí nghiệm, không tự động được bật trong V16-B.
+# BẢN ĐỌC HIỂU: chỉ bổ sung comment/khoảng trắng; KHÔNG thay đổi câu lệnh gốc.
+# Lưu ý: comment vẫn làm thay đổi SHA256 của file (cần init run mới nếu dùng train).
+#================================ HẾT GIỚI THIỆU FILE =================================
+
+
 """Paper-inspired, operation-first AGV dispatch action decoder.
 
 Reference inspirations:
@@ -8,11 +15,21 @@ This is a NEW adaptation to Tobias Matrix, not source code from either paper.
 Do not mistake a processing Station candidate for available capacity; capacity-aware
 masking requires further validated Station-state semantics.
 """
+
+
+
+#========================= MODULE 01 - CÁC THƯ VIỆN / IMPORT ==========================
+# import/from trong Python tương tự #include ở C, nhưng có hệ thống module và package.
 from __future__ import annotations
 
 import numpy as np
+#===================== KẾT THÚC MODULE 01 - CÁC THƯ VIỆN / IMPORT =====================
 
 
+
+
+#======================= MODULE 02 - HÀM PRIORITY_STATION_NAMES =======================
+# Xác định thứ tự các nhóm station/công đoạn được ưu tiên.
 def priority_station_names(info, part):
     """Use Tobias CleverMatrixDispatcher's precedence order:
     rework -> next GEO -> currently possible procedures -> buffer fallback.
@@ -29,8 +46,13 @@ def priority_station_names(info, part):
         if float(amount) > 0.0:
             nodes.extend(part.proc_stat.get(proc, ()))
     return list(dict.fromkeys(nodes)), ("operations" if nodes else "no_pending_operations")
+#================== KẾT THÚC MODULE 02 - HÀM PRIORITY_STATION_NAMES ===================
 
 
+
+
+#================ MODULE 03 - HÀM BUILD_OPERATION_FIRST_DISPATCH_MASK =================
+# Tính mặt nạ trạm cho Dispatch theo độ ưu tiên công đoạn (experimental flag).
 def build_operation_first_dispatch_mask(info, part, live_station_nodes):
     """Return mask aligned to live hive.stations order and diagnostic metadata.
 
@@ -73,3 +95,6 @@ def build_operation_first_dispatch_mask(info, part, live_station_nodes):
         "part_present": info is not None,
     }
     return mask, meta
+#============ KẾT THÚC MODULE 03 - HÀM BUILD_OPERATION_FIRST_DISPATCH_MASK ============
+
+

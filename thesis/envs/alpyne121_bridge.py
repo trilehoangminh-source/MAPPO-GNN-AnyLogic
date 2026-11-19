@@ -1,8 +1,20 @@
+#===================== GIẢI THÍCH FILE: CẦU NỐI ALPYNE - ANYLOGIC =====================
+# Định nghĩa gói cấu hình, observation, action và kết nối simulator AnyLogic qua Alpyne.
+# BẢN ĐỌC HIỂU: chỉ bổ sung comment/khoảng trắng; KHÔNG thay đổi câu lệnh gốc.
+# Lưu ý: comment vẫn làm thay đổi SHA256 của file (cần init run mới nếu dùng train).
+#================================ HẾT GIỚI THIỆU FILE =================================
+
+
 """Alpyne >=1.2 compatibility adapter for Tobias's legacy PettingZoo environment.
 
 New code is deliberately isolated: it does not import or monkeypatch Alpyne 0.2.
 Only the *_v121.py env modules use this adapter.
 """
+
+
+
+#========================= MODULE 01 - CÁC THƯ VIỆN / IMPORT ==========================
+# import/from trong Python tương tự #include ở C, nhưng có hệ thống module và package.
 from __future__ import annotations
 
 import os
@@ -11,60 +23,162 @@ from typing import Any
 
 from alpyne.sim import AnyLogicSim
 from alpyne.constants import EngineState
+#===================== KẾT THÚC MODULE 01 - CÁC THƯ VIỆN / IMPORT =====================
 
 
+
+
+#=========================== MODULE 02 - LỚP CONFIGURATION ============================
+# Đóng gói các tham số cài đặt simulator; gần giống một struct cấu hình trong C.
 class Configuration:
     """Legacy Configuration interface expected by Tobias's build_config()."""
+
+
+    #============================ MODULE CON 01 - __INIT__ ============================
+    # Mục đích: Khởi tạo thuộc tính, tham số và bộ nhớ cho đối tượng.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def __init__(self, **kwargs):
         self.__dict__.update(kwargs)
+    #======================= KẾT THÚC MODULE CON 01 - __INIT__ ========================
 
+
+
+
+    #============================= MODULE CON 02 - NAMES ==============================
+    # Mục đích: Liệt kê tên trường dữ liệu.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def names(self):
         return list(self.__dict__.keys())
+    #========================= KẾT THÚC MODULE CON 02 - NAMES =========================
 
+
+
+
+    #============================= MODULE CON 03 - VALUES =============================
+    # Mục đích: Liệt kê giá trị các trường dữ liệu.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def values(self):
         return list(self.__dict__.values())
+    #======================== KẾT THÚC MODULE CON 03 - VALUES =========================
 
+
+
+
+    #============================ MODULE CON 04 - AS_DICT =============================
+    # Mục đích: Đưa cấu trúc hiện tại về dictionary Python.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def as_dict(self):
         return dict(self.__dict__)
+    #======================== KẾT THÚC MODULE CON 04 - AS_DICT ========================
+
+#======================= KẾT THÚC MODULE 02 - LỚP CONFIGURATION =======================
 
 
+
+
+#============================ MODULE 03 - LỚP OBSERVATION =============================
+# Đại diện packet quan sát AnyLogic; cho phép truy cập theo tên trường.
 class Observation:
     """Legacy observation facade around new dict-like SimObservation."""
+
+
+    #============================ MODULE CON 01 - __INIT__ ============================
+    # Mục đích: Khởi tạo thuộc tính, tham số và bộ nhớ cho đối tượng.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def __init__(self, data):
         self._values = dict(data)
+    #======================= KẾT THÚC MODULE CON 01 - __INIT__ ========================
 
+
+
+
+    #============================= MODULE CON 02 - NAMES ==============================
+    # Mục đích: Liệt kê tên trường dữ liệu.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def names(self):
         return list(self._values.keys())
+    #========================= KẾT THÚC MODULE CON 02 - NAMES =========================
 
+
+
+
+    #============================== MODULE CON 03 - GET ===============================
+    # Mục đích: Lấy giá trị theo khóa/tên trường.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def get(self, key, default=None):
         return self._values.get(key, default)
+    #========================== KẾT THÚC MODULE CON 03 - GET ==========================
 
+
+
+
+    #========================== MODULE CON 04 - __GETATTR__ ===========================
+    # Mục đích: Cung cấp cách truy cập trường bằng cú pháp object.field.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def __getattr__(self, name):
         try:
             return self._values[name]
         except KeyError:
             raise AttributeError(name) from None
+    #====================== KẾT THÚC MODULE CON 04 - __GETATTR__ ======================
 
+
+
+
+    #========================== MODULE CON 05 - __GETITEM__ ===========================
+    # Mục đích: Cung cấp cách truy cập trường bằng cú pháp object[key].
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def __getitem__(self, name):
         return self._values[name]
+    #====================== KẾT THÚC MODULE CON 05 - __GETITEM__ ======================
+
+#======================== KẾT THÚC MODULE 03 - LỚP OBSERVATION ========================
 
 
+
+
+#=============================== MODULE 04 - LỚP ACTION ===============================
+# Đóng gói quyết định điều khiển trước khi gửi tới simulator.
 class Action:
     """Accept the legacy Action(data=[{name,type,value,unit},...]) layout."""
+
+
+    #============================ MODULE CON 01 - __INIT__ ============================
+    # Mục đích: Khởi tạo thuộc tính, tham số và bộ nhớ cho đối tượng.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def __init__(self, data=None, **kwargs):
         if data is not None:
             kwargs.update({entry['name']: entry['value'] for entry in data})
         self.fields = kwargs
+    #======================= KẾT THÚC MODULE CON 01 - __INIT__ ========================
+
+#========================== KẾT THÚC MODULE 04 - LỚP ACTION ===========================
 
 
+
+
+#============================== MODULE 05 - LỚP MODELRUN ==============================
+# Điều phối phiên làm việc của mô phỏng AnyLogic: start/reset/observe/act/stop.
 class ModelRun:
     """Minimal old ModelRun methods required by BaseAlpyneZoo."""
+
+
+    #============================ MODULE CON 01 - __INIT__ ============================
+    # Mục đích: Khởi tạo thuộc tính, tham số và bộ nhớ cho đối tượng.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def __init__(self, sim: AnyLogicSim, config: Configuration):
         self._sim = sim
         self._config = config
         self._status = None
         self.id = None
+    #======================= KẾT THÚC MODULE CON 01 - __INIT__ ========================
 
+
+
+
+    #=========================== MODULE CON 02 - _AS_KWARGS ===========================
+    # Mục đích: Hàm nội bộ as kwargs; được gọi bởi các hàm cấp cao hơn.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     @staticmethod
     def _as_kwargs(config):
         if isinstance(config, Configuration):
@@ -72,7 +186,14 @@ class ModelRun:
         if isinstance(config, dict):
             return dict(config)
         return vars(config).copy()
+    #====================== KẾT THÚC MODULE CON 02 - _AS_KWARGS =======================
 
+
+
+
+    #============================== MODULE CON 03 - RUN ===============================
+    # Mục đích: Xử lý run theo logic của lớp ModelRun.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def run(self):
         if self.id is not None:
             raise RuntimeError('ModelRun already started')
@@ -82,30 +203,65 @@ class ModelRun:
         self.id = 1
         self._assert_status()
         return self
+    #========================== KẾT THÚC MODULE CON 03 - RUN ==========================
 
+
+
+
+    #========================= MODULE CON 04 - _ASSERT_STATUS =========================
+    # Mục đích: Hàm nội bộ assert status; được gọi bởi các hàm cấp cao hơn.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def _assert_status(self):
         if self._status is not None and self._status.state == EngineState.ERROR:
             raise RuntimeError(f'AnyLogic engine MODEL_ERROR: {self._status}')
+    #==================== KẾT THÚC MODULE CON 04 - _ASSERT_STATUS =====================
 
+
+
+
+    #====================== MODULE CON 05 - WAIT_FOR_COMPLETION =======================
+    # Mục đích: Xử lý wait for completion theo logic của lớp ModelRun.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def wait_for_completion(self):
         if self._status is None:
             self._status = self._sim.lock()
         self._assert_status()
         return self._status
+    #================== KẾT THÚC MODULE CON 05 - WAIT_FOR_COMPLETION ==================
 
+
+
+
+    #============================= MODULE CON 06 - RESET ==============================
+    # Mục đích: Đưa trạng thái hoạt động về đầu episode/thời điểm khởi tạo.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def reset(self, config=None):
         if config is not None:
             self._config = config
         self._status = self._sim.reset(**self._as_kwargs(self._config))
         self._assert_status()
         return self._status
+    #========================= KẾT THÚC MODULE CON 06 - RESET =========================
 
+
+
+
+    #======================== MODULE CON 07 - GET_OBSERVATION =========================
+    # Mục đích: Truy xuất observation từ trạng thái/dữ liệu đã lưu.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def get_observation(self):
         status = self.wait_for_completion()
         if status.observation is None:
             raise RuntimeError(f'AnyLogic returned no observation; engine={status.state}')
         return Observation(status.observation)
+    #==================== KẾT THÚC MODULE CON 07 - GET_OBSERVATION ====================
 
+
+
+
+    #========================== MODULE CON 08 - TAKE_ACTION ===========================
+    # Mục đích: Xử lý take action theo logic của lớp ModelRun.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def take_action(self, action):
         if isinstance(action, Action):
             fields = action.fields
@@ -119,15 +275,36 @@ class ModelRun:
         self._status = self._sim.take_action(receiver=receiver, actions=actions)
         self._assert_status()
         return self._status
+    #====================== KẾT THÚC MODULE CON 08 - TAKE_ACTION ======================
 
+
+
+
+    #========================== MODULE CON 09 - IS_TERMINAL ===========================
+    # Mục đích: Xử lý is terminal theo logic của lớp ModelRun.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def is_terminal(self):
         status = self.wait_for_completion()
         return bool(status.stop or status.state == EngineState.FINISHED)
+    #====================== KẾT THÚC MODULE CON 09 - IS_TERMINAL ======================
 
+
+
+
+    #=========================== MODULE CON 10 - GET_STATE ============================
+    # Mục đích: Đọc trạng thái mô phỏng/đối tượng.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def get_state(self):
         s = self.wait_for_completion()
         return (s.state, {'model_time': float(s.time)})
+    #======================= KẾT THÚC MODULE CON 10 - GET_STATE =======================
 
+
+
+
+    #============================== MODULE CON 11 - STOP ==============================
+    # Mục đích: Xử lý stop theo logic của lớp ModelRun.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def stop(self):
         # The new Alpyne client manages Java's lifetime. Prefer public cleanup
         # methods when present; do not terminate other processes globally.
@@ -136,10 +313,22 @@ class ModelRun:
             if callable(fn):
                 fn()
                 return
+    #========================= KẾT THÚC MODULE CON 11 - STOP ==========================
+
+#========================= KẾT THÚC MODULE 05 - LỚP MODELRUN ==========================
 
 
+
+
+#============================ MODULE 06 - LỚP ALPYNECLIENT ============================
+# Tạo client Alpyne và phiên Reinforcement Learning từ model AnyLogic.
 class AlpyneClient:
     """New AnyLogicSim under a legacy client-facing method name."""
+
+
+    #============================ MODULE CON 01 - __INIT__ ============================
+    # Mục đích: Khởi tạo thuộc tính, tham số và bộ nhớ cho đối tượng.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def __init__(self, model_loc, blocking=False, port=51150, verbose=False):
         java_exe = os.environ.get('MAPPO_JAVA_EXE')
         if not java_exe:
@@ -159,6 +348,18 @@ class AlpyneClient:
         if java_exe:
             kwargs['java_exe'] = java_exe
         self._sim = AnyLogicSim(str(model_loc), **kwargs)
+    #======================= KẾT THÚC MODULE CON 01 - __INIT__ ========================
 
+
+
+
+    #================= MODULE CON 02 - CREATE_REINFORCEMENT_LEARNING ==================
+    # Mục đích: Xử lý create reinforcement learning theo logic của lớp AlpyneClient.
+    # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def create_reinforcement_learning(self, config):
         return ModelRun(self._sim, config)
+    #============= KẾT THÚC MODULE CON 02 - CREATE_REINFORCEMENT_LEARNING =============
+
+#======================= KẾT THÚC MODULE 06 - LỚP ALPYNECLIENT ========================
+
+
