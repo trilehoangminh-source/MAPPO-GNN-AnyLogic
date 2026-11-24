@@ -1,12 +1,11 @@
-"""Run offline: python -m pytest -q tests/test_v16b_traffic_edge.py
+"""Offline checks for the active traffic routing actor.
 
 Requires a V15 project tree, PyTorch, pytest. No AnyLogic runtime needed.
 """
 import types
 import torch
 
-from thesis.mappo.v15_tobias_arch import TobiasGraphRoutingActor
-from thesis.mappo.v16b_traffic_edge import TrafficRoutingActor
+from thesis.mappo.model_architecture import TobiasGraphRoutingActor, TrafficRoutingActor
 
 
 # Nodes form directed triangle: 0->1, 1->2, 2->0; plus physical reverse 1->0.
@@ -44,7 +43,9 @@ def test_zero_edge_weights_exactly_v15():
     before = TobiasGraphRoutingActor(GRAPH)
     after = TrafficRoutingActor(GRAPH)
     missing, extra = after.load_state_dict(before.state_dict(),strict=False)
-    assert set(missing) == {'convs.0.edge_lin.weight','convs.1.edge_lin.weight'}
+    assert set(missing) == {f'convs.{layer}.{name}.weight'
+                            for layer in range(2)
+                            for name in ('edge_att_lin', 'edge_msg_lin')}
     assert not extra
     with torch.no_grad():
         for variant in (False,True):
@@ -58,7 +59,7 @@ def test_directed_features_and_dummy_ignored():
     actor = TrafficRoutingActor(GRAPH)
     obs = observation()
     attr = actor.traffic_features(obs)
-    assert attr.shape == (2,actor.edge_index.shape[1],4)
+    assert attr.shape == (2,actor.edge_index.shape[1],7)
     assert torch.isfinite(attr).all()
     src, dst = actor.edge_index[1],actor.edge_index[0]
     idx01 = ((src==0) & (dst==1)).nonzero().item()
@@ -72,7 +73,7 @@ def test_directed_features_and_dummy_ignored():
     self_edge = src==dst
     assert torch.equal(attr[:,self_edge,:],torch.zeros_like(attr[:,self_edge,:]))
     empty = actor.traffic_features(observation(all_zero_other=True))
-    assert torch.all(empty[...,1:]==0)
+    assert torch.all(empty[...,1:6]==0)
 
 
 def test_traffic_attention_backprop_and_no_mask():
@@ -82,8 +83,9 @@ def test_traffic_attention_backprop_and_no_mask():
     loss = logits.square().sum()
     loss.backward()
     for conv in actor.convs:
-        assert conv.edge_lin.weight.grad is not None
-        assert torch.isfinite(conv.edge_lin.weight.grad).all()
+        for edge_layer in (conv.edge_att_lin, conv.edge_msg_lin):
+            assert edge_layer.weight.grad is not None
+            assert torch.isfinite(edge_layer.weight.grad).all()
     assert actor.uses_action_mask is False
     dist = actor.dist({**obs,'action_mask':torch.tensor([[1,0,0,0,0]]).expand(2,-1).float()})
     assert (dist.probs[:,1:] > 0).all() # intentionally UNMASKED routing
@@ -102,7 +104,8 @@ def test_nonzero_edge_weights_make_policy_traffic_sensitive():
     actor = TrafficRoutingActor(GRAPH)
     with torch.no_grad():
         for conv in actor.convs:
-            conv.edge_lin.weight.normal_(0., .4)
+            conv.edge_att_lin.weight.normal_(0., .4)
+            conv.edge_msg_lin.weight.normal_(0., .4)
     obs_traffic = observation(all_zero_other=False)
     obs_empty = observation(all_zero_other=True)
     with torch.no_grad():
@@ -121,7 +124,7 @@ def test_nonzero_edge_weights_make_policy_traffic_sensitive():
 
 
 def test_v15_warmstart_weights_and_optimizers(tmp_path):
-    from thesis.mappo.v16b_traffic_edge import transfer_v15_checkpoint
+    from thesis.mappo.model_architecture import transfer_checkpoint
     from types import SimpleNamespace
     from torch import nn
 
@@ -149,11 +152,12 @@ def test_v15_warmstart_weights_and_optimizers(tmp_path):
         roles={'routing':Role(TrafficRoutingActor(GRAPH)),
                'dispatch_front':Role(nn.Linear(2,3)),
                'dispatch_rear':Role(nn.Linear(2,3))})
-    mode = transfer_v15_checkpoint(model,checkpoint)
+    mode = transfer_checkpoint(model,checkpoint)
     assert mode == 'v15_compatible_weights_routing_actor_adam_reset'
     assert len(model.roles['routing'].actor_optimizer.state) == 0
-    assert all(torch.count_nonzero(c.edge_lin.weight) == 0
-               for c in model.roles['routing'].actor.convs)
+    assert all(torch.count_nonzero(layer.weight) == 0
+               for conv in model.roles['routing'].actor.convs
+               for layer in (conv.edge_att_lin, conv.edge_msg_lin))
     old = v15_roles['routing'].actor.state_dict()
     new = model.roles['routing'].actor.state_dict()
     for k,v in old.items():

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-r"""V15 MAPPO/AnyLogic local plotting GUI for TRAINING and HELD-OUT logs.
+r"""MAPPO MAPPO/AnyLogic local plotting GUI for TRAINING and HELD-OUT logs.
 
 Run from VS Code terminal:
-    .\.venv311\Scripts\python.exe .\scripts\plot_v15_metrics_gui.py
+    .\.venv311\Scripts\python.exe .\scripts\plot_metrics_gui.py
 Or headless (repeat --input to compare checkpoint files):
-    python plot_v15_metrics_gui.py --input metrics.jsonl --no-gui
-    python plot_v15_metrics_gui.py --input heldout_ep80.jsonl --input heldout_ep200.jsonl --no-gui
+    python plot_metrics_gui.py --input metrics.jsonl --no-gui
+    python plot_metrics_gui.py --input heldout_ep80.jsonl --input heldout_ep200.jsonl --no-gui
 
 Only reads logs. Produces PNG, SVG, CSV, TXT in NEW timestamped folders.
 Training episode curves are NOT evaluation. Matched seeds permit paired comparisons.
@@ -272,9 +272,9 @@ def plot_training(datasets, window, use_events):
     for ax, (key, title, ytitle) in zip(axs.flat, specs):
         ax.set_title(title, fontsize=12, fontweight="medium")
         plot_lines(ax, datasets, key, window, use_events, ylabel=ytitle)
-    fig.suptitle("V15 Training Curves — Figure 5–7 inspired", fontweight="semibold", fontsize=15)
+    fig.suptitle("MAPPO Training Curves — Figure 5–7 inspired", fontweight="semibold", fontsize=15)
     fig.text(0.5, 0.025,
-             "Per-episode training values; paper 'training steps' and curves are not identical to V15 logs.",
+             "Per-episode training values; paper 'training steps' and curves are not identical to MAPPO logs.",
              ha="center", va="bottom", fontsize=8, color="dimgray")
     return fig
 
@@ -317,7 +317,7 @@ def plot_diagnostics(datasets, window, use_events):
         else:
             ax.text(0.5, 0.5, "No PPO data", transform=ax.transAxes, ha="center", va="center")
         common_axes(ax, field, use_events)
-    fig.suptitle("V15 Diagnostics — Traffic & PPO stability", fontweight="semibold", fontsize=15)
+    fig.suptitle("MAPPO Diagnostics — Traffic & PPO stability", fontweight="semibold", fontsize=15)
     return fig
 
 #============ KẾT THÚC MODULE 08 - SÁU ĐỒ THỊ CHẨN ĐOÁN GIAO THÔNG / PPO ============
@@ -404,13 +404,13 @@ def plot_fleet_compare(datasets, window):
 def summary_and_csv(datasets, window, out_dir):
     out_dir = Path(out_dir)
     txt = []
-    txt.append("V15 TRAINING METRICS — LOCAL REPORT")
+    txt.append("MAPPO TRAINING METRICS — LOCAL REPORT")
     txt.append("WARNING: training metrics, not held-out evaluation.")
     txt.append("Fig. 5–8-inspired plots do NOT reproduce the author's experiments.")
     txt.append("Training episode != paper training step; cumulative events is a proxy only.")
     txt.append("Products Completed is mapped to statistics.jobDone. Lead time is not logged here.")
     txt.append("-" * 75)
-    with (out_dir / "v15_episode_data.csv").open("w", encoding="utf-8-sig", newline="") as fp:
+    with (out_dir / "mappo_episode_data.csv").open("w", encoding="utf-8-sig", newline="") as fp:
         keys = [k for k, _, _ in KEYS]
         writer = csv.writer(fp)
         writer.writerow(["source_file", "phase", "fleet_size", "episode", "cumulative_events", *keys])
@@ -420,7 +420,7 @@ def summary_and_csv(datasets, window, out_dir):
                                  round(d["event_steps"][i], 2),
                                  *["" if not math.isfinite(d["metric"][k][i]) else round(d["metric"][k][i], 6)
                                    for k in keys]])
-    with (out_dir / "v15_fleet_summary.csv").open("w", encoding="utf-8-sig", newline="") as fp:
+    with (out_dir / "mappo_fleet_summary.csv").open("w", encoding="utf-8-sig", newline="") as fp:
         writer = csv.writer(fp)
         writer.writerow(["source_file", "phase", "fleet_size", "last_episode", "n_episodes", "window",
                          "jobDone_avg", "targets_avg", "targets_per_agv_avg", "block_avg", "liveLock_avg",
@@ -475,7 +475,7 @@ def summary_and_csv(datasets, window, out_dir):
             )
             txt.append(f"PPO updated {role}: {updates}/{n} episode(s)")
     txt.append("\nNOTE: To compare Fig.8 statistically, evaluate on matched held-out seeds & definitions.")
-    report = out_dir / "v15_report.txt"
+    report = out_dir / "mappo_report.txt"
     report.write_text("\n".join(txt) + "\n", encoding="utf-8")
     return report
 
@@ -530,7 +530,7 @@ def inspect_log_kind(path: Path):
                 return 'heldout'
             if 'episode' in row and 'environment' in row:
                 return 'training'
-            raise ValueError(f'{path}: Not recognized as V15 training or held-out JSONL')
+            raise ValueError(f'{path}: Not recognized as MAPPO training or held-out JSONL')
     raise ValueError(f'{path}: Empty JSONL')
 
 #============== KẾT THÚC MODULE 13 - TỰ NHẬN BIẾT TRAINING HAY HELD-OUT ==============
@@ -707,7 +707,7 @@ def grouped_bars(ax,ds,key,title,ylabel,per_agv=False):
 
 def plot_heldout_overview(ds):
     fig,axes=plt.subplots(2,3,figsize=(16,9),layout='constrained')
-    fig.suptitle('V15 HELD-OUT — checkpoint comparison (mean ± sample SD)',fontsize=16,fontweight='bold')
+    fig.suptitle('MAPPO HELD-OUT — checkpoint comparison (mean ± sample SD)',fontsize=16,fontweight='bold')
     specs=[('jobDone','Products Completed','JobDone / seed',False),
            ('targetReached','Targets Reached / AGV','Targets per AGV / seed',True),
            ('block','Number of Blocks','Block / seed',False),
@@ -731,7 +731,7 @@ def plot_heldout_overview(ds):
 def plot_heldout_seedwise(ds):
     """Actual seed values; shared x keys are NOT a learning-curve x-axis."""
     fig,axs=plt.subplots(2,2,figsize=(15,9),layout='constrained')
-    fig.suptitle('V15 HELD-OUT — results by random seed',fontsize=16,fontweight='bold')
+    fig.suptitle('MAPPO HELD-OUT — results by random seed',fontsize=16,fontweight='bold')
     specs=[('jobDone','Products Completed','JobDone'),
            ('targetReached','Targets Reached','Targets Reached'),
            ('block','Blocks','Blocks'),
@@ -766,7 +766,7 @@ def plot_heldout_seedwise(ds):
 
 def plot_heldout_routing(ds):
     fig,axs=plt.subplots(1,3,figsize=(16.6,5.5),layout='constrained')
-    fig.suptitle('V15 HELD-OUT — routing STOP diagnostics (observed, not reward inference)',fontsize=14,fontweight='bold')
+    fig.suptitle('MAPPO HELD-OUT — routing STOP diagnostics (observed, not reward inference)',fontsize=14,fontweight='bold')
     ax=axs[0]
     for d in ds:
         x=d['metric']['routing_stop_rate']; y=d['metric']['jobDone']; valid=np.isfinite(x)&np.isfinite(y)
@@ -874,7 +874,7 @@ def plot_heldout_paired(ds):
 def plot_heldout_fleet(ds):
     if len({d['fleet'] for d in ds})<2:return None
     fig,axs=plt.subplots(2,2,figsize=(14,9),layout='constrained')
-    fig.suptitle('V15 HELD-OUT — fleet-size comparison (Figure 8 inspired)',fontsize=15,fontweight='bold')
+    fig.suptitle('MAPPO HELD-OUT — fleet-size comparison (Figure 8 inspired)',fontsize=15,fontweight='bold')
     specs=[('targetReached','Targets Reached / AGV','Targets / AGV',True),
            ('jobDone','Products Completed','JobDone',False),
            ('block','Blocks','Blocks',False),
@@ -902,21 +902,21 @@ def plot_heldout_fleet(ds):
 # Giải thích: Không khẳng định đã tái lập hoàn toàn kết quả paper Tobias.
 
 def summarize_heldout(ds,out):
-    report=['V15 HELD-OUT EVALUATION — LOCAL REPORT',
+    report=['MAPPO HELD-OUT EVALUATION — LOCAL REPORT',
             'ONE row = ONE held-out environment seed. NOT a training curve.',
             'Values are descriptive; no matched Tobias baseline/lead-time inference.',
             'STOP rate = routing_stop_with_move_available / routing_move_available_decisions.',
             'Distinct seed samples are not paired, even if row indices match.','-'*78]
     columns=['source_file','phase','checkpoint_episode','checkpoint_sha256','fleet','seed','sim_seconds',
              'greedy','ppo_updates',*HELDOUT_KEYS]
-    with (out/'v15_heldout_per_seed.csv').open('w',encoding='utf-8-sig',newline='') as fp:
+    with (out/'mappo_heldout_per_seed.csv').open('w',encoding='utf-8-sig',newline='') as fp:
         w=csv.writer(fp);w.writerow(columns)
         for d in ds:
             for idx,seed in enumerate(d['seed']):
                 w.writerow([str(d['file']),d['phase'],d['episode'],d['checkpoint'],d['fleet'],
                             int(seed),d['sim_seconds'],d['greedy'],d['ppo_updates'],
                             *[d['metric'][k][idx] if math.isfinite(d['metric'][k][idx]) else '' for k in HELDOUT_KEYS]])
-    with (out/'v15_heldout_summary.csv').open('w',encoding='utf-8-sig',newline='') as fp:
+    with (out/'mappo_heldout_summary.csv').open('w',encoding='utf-8-sig',newline='') as fp:
         w=csv.writer(fp)
         w.writerow(['source_file','phase','episode','checkpoint_sha256','fleet','n_seeds','sim_seconds',
                     *[f'{k}_{t}' for k in HELDOUT_KEYS for t in ('mean','sd','n')], 'pooled_stop_rate_pct'])
@@ -951,7 +951,7 @@ def summarize_heldout(ds,out):
     else:
         report.append('\nNo paired comparison: requires exactly TWO held-out checkpoints, same phase/fleet/horizon, and shared seeds.')
     report.append('\nCaution: low Block may coincide with excess STOP; low Block alone is not proof of throughput improvement.')
-    path=out/'v15_heldout_report.txt'
+    path=out/'mappo_heldout_report.txt'
     path.write_text('\n'.join(report)+'\n',encoding='utf-8')
     return path
 
@@ -997,10 +997,10 @@ def generate(paths, window=10, use_events=False, out_dir=None):
     else:
         stamp=datetime.now().strftime('%Y%m%d_%H%M%S')
         parent=inputs[0].parent
-        folder=parent/f'V15_PLOTS_{stamp}'
+        folder=parent/f'MAPPO_PLOTS_{stamp}'
         c=2
         while folder.exists():
-            folder=parent/f'V15_PLOTS_{stamp}_{c}';c+=1
+            folder=parent/f'MAPPO_PLOTS_{stamp}_{c}';c+=1
         folder.mkdir(parents=True)
     figures=[];reports=[]
     if training:
@@ -1043,10 +1043,10 @@ def run_gui():
     #========================= PHẦN RUN_GUI-01 - KHỞI TẠO CỬA SỔ =========================
     # Tạo nút chọn file, các ô nhập và thanh trạng thái.
 
-    root=tk.Tk();root.title('V15 Graph Plotter — Training + Held-out')
+    root=tk.Tk();root.title('MAPPO Graph Plotter — Training + Held-out')
     root.geometry('1000x570');root.minsize(820,460)
     frame=ttk.Frame(root,padding=16);frame.pack(fill='both',expand=True)
-    ttk.Label(frame,text='V15 | VẼ ĐỒ THỊ TRAINING VÀ HELD-OUT',font=('Segoe UI',16,'bold')).pack(anchor='w')
+    ttk.Label(frame,text='MAPPO | VẼ ĐỒ THỊ TRAINING VÀ HELD-OUT',font=('Segoe UI',16,'bold')).pack(anchor='w')
     ttk.Label(frame,text='Dán đường dẫn metrics.jsonl hoặc heldout_*.jsonl (mỗi dòng một file). Có thể chọn nhiều checkpoint để so sánh.',
               foreground='#666666').pack(anchor='w',pady=(5,8))
     tb=tk.Text(frame,height=10,wrap='none',font=('Consolas',10));tb.pack(fill='both',expand=True)
@@ -1068,7 +1068,7 @@ def run_gui():
             messagebox.showerror('Lỗi đọc/vẽ log',str(e),parent=root)
             status.set('Lỗi: '+str(e));return
         status.set(f'Đã xuất {len(figures)} biểu đồ → {output}')
-        popup=tk.Toplevel(root);popup.title('V15 Charts — '+output.name)
+        popup=tk.Toplevel(root);popup.title('MAPPO Charts — '+output.name)
         popup.geometry('1300x850')
         notebook=ttk.Notebook(popup);notebook.pack(fill='both',expand=True)
         for title,fig in figures:

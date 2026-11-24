@@ -11,9 +11,9 @@
 #========================= MODULE 01 - CÁC THƯ VIỆN / IMPORT ==========================
 # import/from trong Python tương tự #include ở C, nhưng có hệ thống module và package.
 import random
-from .alpyne121_bridge import AlpyneClient
-from .base_alpyne_zoo_v121 import ZooAgent, BaseAlpyneZoo
-from .behaviors_v121 import (
+from .alpyne_bridge import AlpyneClient
+from .base_alpyne_zoo import ZooAgent, BaseAlpyneZoo
+from .behaviors import (
     MultiAgent,
     SingleAgent,
     RandomStationDispatcher,
@@ -26,7 +26,7 @@ from .behaviors_v121 import (
     ApplyPolicyAgent,
     SingleDispAgent
 )
-from ..utils.build_config_v121 import build_config
+from ..utils.build_config import build_config
 from PIL import ImageDraw, Image
 import gymnasium.spaces
 #===================== KẾT THÚC MODULE 01 - CÁC THƯ VIỆN / IMPORT =====================

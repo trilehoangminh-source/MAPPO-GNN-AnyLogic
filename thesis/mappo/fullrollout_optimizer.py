@@ -26,7 +26,7 @@ import numpy as np
 import torch
 from torch import nn
 
-from thesis.mappo.mappo_stability_v7 import make_gae_records, critic_loss
+from thesis.mappo.ppo_stability import make_gae_records, critic_loss
 #===================== KẾT THÚC MODULE 01 - CÁC THƯ VIỆN / IMPORT =====================
 
 

@@ -65,7 +65,7 @@ def verify_checkpoint(checkpoint: Path, run_config: Path):
 #==================== MODULE 03 - HÀM ASSERT_LIVE_GRAPH_COMPATIBLE ====================
 # Xác nhận topology môi trường thật khớp checkpoint.
 def assert_live_graph_compatible(hive, run_cfg, raw):
-    from thesis.mappo.gnn_routing_B3_v121 import GraphSpec
+    from thesis.mappo.routing_graph import GraphSpec
 
     live = GraphSpec.from_hive(hive)
     if live.fingerprint != run_cfg["graph_fingerprint"]:
@@ -87,8 +87,8 @@ def assert_live_graph_compatible(hive, run_cfg, raw):
 def make_inference_policy(checkpoint: Path, run_config: Path, hive):
     """Reconstruct exact trained actor layout from checkpoint, not stale routing_backbone=pooled."""
     from thesis.mappo.algorithm import MAPPOConfig
-    from thesis.mappo.routing_guidance_v121 import GuidedMAPPO, enable_routing_distribution_prior
-    from thesis.mappo.gnn_routing_B3_v121 import GraphRoutingActor
+    from thesis.mappo.routing_guidance import GuidedMAPPO, enable_routing_distribution_prior
+    from thesis.mappo.routing_graph import GraphRoutingActor
     from thesis.mappo.edge_gat_routing_v4 import enable_edge_gat_routing
     from thesis.mappo.networks import Actor
 

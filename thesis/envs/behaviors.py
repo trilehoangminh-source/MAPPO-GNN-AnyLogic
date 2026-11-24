@@ -10,9 +10,9 @@
 
 #========================= MODULE 01 - CÁC THƯ VIỆN / IMPORT ==========================
 # import/from trong Python tương tự #include ở C, nhưng có hệ thống module và package.
-from .base_alpyne_zoo_v121 import ZooAgentBehavior
+from .base_alpyne_zoo import ZooAgentBehavior
 from .part_variants import MatrixPart
-from .alpyne121_bridge import Observation, Action
+from .alpyne_bridge import Observation, Action
 import random
 from gymnasium import spaces
 import numpy as np
@@ -1249,7 +1249,7 @@ class MultiDispAgent(MultiAgent):
         # This is read per observation so A/B stays legacy unless explicitly enabled.
         import os
         if os.environ.get("MAPPO_DISPATCH_MASK_MODE", "legacy") == "operation_first":
-            from .dispatch_paper_mask_v121 import build_operation_first_dispatch_mask
+            from .dispatch_mask import build_operation_first_dispatch_mask
             chosen_info = translated[0] if translated else None
             _obs["action_mask"], _paper_diag = build_operation_first_dispatch_mask(
                 chosen_info, self.part, self.hive.stations.keys()

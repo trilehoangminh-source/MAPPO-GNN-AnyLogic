@@ -1,4 +1,4 @@
-"""Self-contained V15 structural tests; no AnyLogic/Java/Ray/PyG needed."""
+"""Offline training pipeline checks; no AnyLogic/Java/Ray/PyG needed."""
 from __future__ import annotations
 import importlib.util
 import sys
@@ -18,9 +18,9 @@ def load(path,module):
     spec.loader.exec_module(m)
     return m
 
-stage=load(Path('scripts/v15_staged_collector.py'),'v15_staged_collector')
-arch=load(Path('thesis/mappo/v15_tobias_arch.py'),'v15_tobias_arch')
-builder=load(Path('scripts/v15_tobias_build.py'),'v15_tobias_build')
+stage=load(Path('scripts/stage_policy.py'),'stage_policy')
+arch=load(Path('thesis/mappo/model_architecture.py'),'model_architecture')
+builder=load(Path('scripts/model_builder.py'),'model_builder')
 
 class Space:
     def __init__(self,shape):self.shape=shape
@@ -40,7 +40,7 @@ def observation(batch=2):
     stat[:,0,:2]=torch.tensor([.2,.1])
     return {'agvs':agvs,'stat':stat,'action_mask':torch.ones((batch,5))}
 
-class TestV15(unittest.TestCase):
+class TestTrainingPipeline(unittest.TestCase):
     def setUp(self):torch.manual_seed(2)
 
     def test_routing_tobias_two_gatv2_four_heads(self):
@@ -52,7 +52,7 @@ class TestV15(unittest.TestCase):
         p=net.dist(o).probs
         self.assertEqual(tuple(p.shape),(2,5))
         self.assertTrue(torch.isfinite(p).all())
-        self.assertTrue(torch.all(p[:,3]==0))
+        self.assertTrue(torch.all(p[:,3]>0))
         loss=net.logits(o).sum();loss.backward()
         self.assertTrue(all(torch.isfinite(g).all() for g in
             (x.grad for x in net.parameters()) if g is not None))
@@ -88,7 +88,7 @@ class TestV15(unittest.TestCase):
     def test_no_geometric_router_for_dispatch_pretraining(self):
         self.assertFalse(hasattr(stage,'masked_geometric_routing'))
         self.assertIn('dispatch8',stage.PHASES)
-        self.assertTrue('CollisionFreeRouting' in (ROOT/'scripts/v15_tobias_build.py').read_text())
+        self.assertTrue('CollisionFreeRouting' in (ROOT/'scripts/model_builder.py').read_text(encoding='utf-8'))
 
     def test_dispatch8_refuses_routing_decisions_inside_ppo(self):
         fake=types.SimpleNamespace(roles={r:object() for r in ('routing','dispatch_front','dispatch_rear')},
@@ -98,11 +98,11 @@ class TestV15(unittest.TestCase):
             adapter.act('routing',{'action_mask':np.array([1,1,0,0,0])},None)
 
     def test_native_router_confined_to_dispatch8(self):
-        builder_text=(ROOT/'scripts/v15_tobias_build.py').read_text()
+        builder_text=(ROOT/'scripts/model_builder.py').read_text(encoding='utf-8')
         self.assertIn("use_conventional_routing = (phase == 'dispatch8')", builder_text)
         self.assertIn('pseudo_routing=use_conventional_routing', builder_text)
         self.assertIn('CollisionFreeRoutingHive', builder_text)
-        runner_text=(ROOT/'scripts/train_v15_tobias_staged.py').read_text()
+        runner_text=(ROOT/'scripts/train.py').read_text(encoding='utf-8')
         self.assertIn('phase=a.phase',runner_text)
 
     def test_phase_role_filters(self):
@@ -190,40 +190,42 @@ class TestV15(unittest.TestCase):
             m.__dict__.update(attrs)
             return m
         fakes={
-            'thesis.envs.matrix_v121': module('thesis.envs.matrix_v121', Matrix=Matrix),
-            'thesis.envs.behaviors_v121': module('thesis.envs.behaviors_v121',
+            'thesis.envs.matrix': module('thesis.envs.matrix', Matrix=Matrix),
+            'thesis.envs.behaviors': module('thesis.envs.behaviors',
                                                  CollisionFreeRouting=CollisionFreeRouting,
                                                  CollisionFreeRoutingHive=CollisionFreeRoutingHive),
             'thesis.mappo.algorithm': module('thesis.mappo.algorithm', MAPPO=MAPPO, MAPPOConfig=MAPPOConfig),
-            'thesis.mappo.mappo_stability_v7':module('thesis.mappo.mappo_stability_v7',
+            'thesis.mappo.ppo_stability':module('thesis.mappo.ppo_stability',
                                                    enable_v7=lambda *x: None,V7Options=V7Options),
-            'thesis.mappo.gnn_routing_B3_v121':module('thesis.mappo.gnn_routing_B3_v121', GraphSpec=GraphSpec),
-            'thesis.mappo.v15_tobias_arch':module('thesis.mappo.v15_tobias_arch',
-                                                install_v15=lambda *x: {'mock':True}),
+            'thesis.mappo.routing_graph':module('thesis.mappo.routing_graph', GraphSpec=GraphSpec),
+            'thesis.mappo.model_architecture':module('thesis.mappo.model_architecture',
+                                                install_base_architecture=lambda *x: {'mock':True},
+                                                install_traffic_routing=lambda *x: {'mock':True},
+                                                transfer_checkpoint=lambda *x: 'mock'),
         }
         # These are injected into the builder's local imports only; no AnyLogic needed.
         with patch.dict(sys.modules, fakes):
             base=dict(max_fleetsize=20,gamma=.9,gae_lambda=.95,clip=.1,lr=.0001,
                       epochs=5,mini_batches=1,ppo_v7_options={},
                       graph_fingerprint='offline-fingerprint')
-            env,_,_,info=builder.build_v15(base,model_path=__file__,fleet_size=8,port=51880,
+            env,_,_,info=builder.build_model(base,model_path=__file__,fleet_size=8,port=51880,
                                             device='cpu',seed=1,max_events=1000,phase='dispatch8')
             self.assertTrue(env.pseudo_routing)
             self.assertTrue(info['native_conventional_routing'])
             self.assertEqual(info['routing_controller'],'tobias_collision_free_reservation')
             env.close()
             for name,fleet in [('routing8',8),('joint8',8),('joint12',12),('joint16',16),('joint20',20)]:
-                env,_,_,info=builder.build_v15(base,model_path=__file__,fleet_size=fleet,
+                env,_,_,info=builder.build_model(base,model_path=__file__,fleet_size=fleet,
                       port=51880,device='cpu',seed=1,max_events=1000,phase=name)
                 self.assertFalse(env.pseudo_routing)
                 self.assertFalse(info['native_conventional_routing'])
-                self.assertEqual(info['routing_controller'],'unguided_gatv2')
+                self.assertEqual(info['routing_controller'],'traffic_edge_gatv2')
                 env.close()
         self.assertEqual(len(created),6)
 
     def test_frozen_role_weight_audit_detects_mutation(self):
         sys.path.insert(0,str(ROOT/'scripts'))
-        import train_v15_tobias_staged as runner
+        import train as runner
         class SmallRole:
             def __init__(self):
                 self.actor=torch.nn.Linear(3,2)
@@ -250,28 +252,28 @@ class TestV15(unittest.TestCase):
 
     def test_tobias_original_dispatch_mask_selected(self):
         self.assertEqual(builder.TOBIAS_DISPATCH_MASK_MODE,'legacy')
-        baseline=(ROOT/'thesis/envs/behaviors_v121.py').read_text()
+        baseline=(ROOT/'thesis/envs/behaviors.py').read_text(encoding='utf-8')
         self.assertIn('possible_stations.extend(self.part.proc_stat[proc])',baseline)
         self.assertIn('possible_station_nodes = [self.part.stat_node[stat] for stat in possible_stations] + self.part.stat_node["puffer"]',baseline)
-        for p in ('scripts/train_v15_tobias_staged.py',
-                  'scripts/evaluate_v15_tobias_staged.py'):
-            content=(ROOT/p).read_text()
+        for p in ('scripts/train.py',
+                  'scripts/evaluate.py'):
+            content=(ROOT/p).read_text(encoding='utf-8')
             self.assertIn("os.environ['MAPPO_DISPATCH_MASK_MODE']=TOBIAS_DISPATCH_MASK_MODE",content)
             self.assertNotIn("os.environ['MAPPO_DISPATCH_MASK_MODE']='operation_first'",content)
 
     def test_joint16_checkpoint_option(self):
-        runner=load(Path('scripts/train_v15_tobias_staged.py'),'train_v15_tobias_staged')
+        runner=load(Path('scripts/train.py'),'train')
         cfg=runner.parse_args(['--phase','joint16','--max-episodes','1'])
         self.assertIsNone(cfg.init_checkpoint)
-        self.assertIn('V15_TOBIAS_ORIGINAL_DISPATCH_MASK_3600S',str(cfg.output_root))
+        self.assertIn('TRAFFIC_EDGE_MESSAGE_GA512',str(cfg.output_root))
         self.assertRaises(SystemExit,runner.parse_args,
                           ['--phase','joint8','--init-checkpoint','missing.pt'])
 
     def test_source_does_not_import_guidance(self):
-        content=(ROOT/'scripts/v15_tobias_build.py').read_text()
-        self.assertNotIn('from thesis.mappo.routing_guidance_v121 import',content)
+        content=(ROOT/'scripts/model_builder.py').read_text(encoding='utf-8')
+        self.assertNotIn('from thesis.mappo.routing_guidance import',content)
         self.assertNotIn('from thesis.mappo.v14_deep_candidate_mlp import',content)
         self.assertNotIn('install_v12(',content)
-        self.assertNotIn('masked_geometric_routing', (ROOT/'scripts/v15_staged_collector.py').read_text())
+        self.assertNotIn('masked_geometric_routing', (ROOT/'scripts/stage_policy.py').read_text(encoding='utf-8'))
 
 if __name__=='__main__':unittest.main()

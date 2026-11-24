@@ -17,8 +17,8 @@ from typing import Union, Tuple, Dict, Optional
 import numpy as np
 from gymnasium import spaces
 
-from .alpyne121_bridge import ModelRun
-from .alpyne121_bridge import Observation, Action, Configuration
+from .alpyne_bridge import ModelRun
+from .alpyne_bridge import Observation, Action, Configuration
 
 from pettingzoo import AECEnv
 #===================== KẾT THÚC MODULE 01 - CÁC THƯ VIỆN / IMPORT =====================

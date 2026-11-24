@@ -29,7 +29,7 @@ import numpy as np
 import torch
 from torch.distributions import Categorical
 from .algorithm import MAPPO
-from .collector_stop_ab import EventCollector
+from .collector import EventCollector
 #===================== KẾT THÚC MODULE 01 - CÁC THƯ VIỆN / IMPORT =====================
 
 

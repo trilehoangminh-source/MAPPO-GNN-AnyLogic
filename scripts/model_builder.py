@@ -1,4 +1,4 @@
-"""Build V15 from scratch using the same AnyLogic/role/PPO infrastructure as V14.
+"""Build the current traffic-aware MAPPO model and AnyLogic environment.
 
 Unlike build_v14 this module does not call GuidedMAPPO, install_v12, install_v14
 or any routing/reward wrapper. GAT has no Dijkstra guidance. PPO unchanged.
@@ -45,27 +45,28 @@ TOBIAS_JOINT_REWARDS=dict(
 # Mục đích: Tạo Matrix AnyLogic, GraphSpec, ba Actor/Critic và gắn optimizer.
 # Giải thích: Kiểm tra số slot AGV, graph fingerprint và checkpoint để tránh nhầm run.
 
-def build_v15(cfg, *, model_path, fleet_size, port, device, seed, max_events,
+def build_model(cfg, *, model_path, fleet_size, port, device, seed, max_events,
               sim_seconds=3600, checkpoint=None, phase='routing8'):
-    """Construct V15; dispatch8 uses native Tobias pseudo-routing, all other phases GAT."""
+    """Construct MAPPO; dispatch8 uses native routing, other phases use traffic GAT."""
 
     #==================== PHẦN BUILD_V15-01 - XÁC NHẬN PHASE / FLEET ====================
     # Không cho sai số AGV hoặc phase.
 
-    from v15_staged_collector import PHASES
+    from stage_policy import PHASES
     if phase not in PHASES or int(fleet_size)!=PHASES[phase][0]:
-        raise ValueError('V15 phase/fleet mismatch')
+        raise ValueError('Phase/fleet mismatch')
     use_conventional_routing = (phase == 'dispatch8')
     if sim_seconds != 3600 or fleet_size not in (8,12,16,20):
-        raise ValueError('V15 supports 3600s and fleet size 8,12,16,20 only')
+        raise ValueError('Supports 3600s and fleet size 8,12,16,20 only')
     if int(cfg['max_fleetsize'])!=20:
         raise ValueError('Blueprint must have max_fleetsize=20')
     if int(max_events)<1: raise ValueError('max_events must be positive')
-    from thesis.envs.matrix_v121 import Matrix
+    from thesis.envs.matrix import Matrix
     from thesis.mappo.algorithm import MAPPO,MAPPOConfig
-    from thesis.mappo.mappo_stability_v7 import enable_v7,V7Options
-    from thesis.mappo.gnn_routing_B3_v121 import GraphSpec
-    from thesis.mappo.v15_tobias_arch import install_v15
+    from thesis.mappo.ppo_stability import enable_v7,V7Options
+    from thesis.mappo.routing_graph import GraphSpec
+    from thesis.mappo.model_architecture import (
+        install_base_architecture, install_traffic_routing, transfer_checkpoint)
 
     os.environ['MAPPO_DISPATCH_MASK_MODE']=TOBIAS_DISPATCH_MASK_MODE
 
@@ -89,7 +90,7 @@ def build_v15(cfg, *, model_path, fleet_size, port, device, seed, max_events,
         # Its actions are executed internally in BaseAlpyneZoo._collect():
         # CollisionFreeRouting.is_for_learning() returns False.
         if use_conventional_routing:
-            from thesis.envs.behaviors_v121 import CollisionFreeRouting, CollisionFreeRoutingHive
+            from thesis.envs.behaviors import CollisionFreeRouting, CollisionFreeRoutingHive
             if not isinstance(env.agent_hive, CollisionFreeRoutingHive):
                 raise RuntimeError('dispatch8 requires CollisionFreeRoutingHive')
             if any(not isinstance(env.agent_behaviors.get(str(i)), CollisionFreeRouting)
@@ -133,23 +134,24 @@ def build_v15(cfg, *, model_path, fleet_size, port, device, seed, max_events,
              routing_backbone='pooled',dispatch_backbone='pooled',
              env_type='matrix',two_fleets=True)
         model=MAPPO(roles,feat,mcfg,device=str(device))
-        arch=install_v15(model,obs_space,feat,graph)
+        arch=install_traffic_routing(model,obs_space,feat,graph,install_base_architecture)
         enable_v7(model,V7Options(**dict(cfg['ppo_v7_options'])))
 
         #===================== PHẦN BUILD_V15-07 - NẠP CHECKPOINT NẾU CÓ =====================
         # Sử dụng checkpoint đã chọn thay vì train từ đầu.
 
-        if checkpoint is not None: model.load(str(Path(checkpoint).resolve()))
+        if checkpoint is not None:
+            arch['checkpoint_transfer'] = transfer_checkpoint(model,checkpoint)
         if getattr(model.roles['routing'].actor,'_b3_guide_dist',False):
             raise RuntimeError('Unexpected Dijkstra policy wrapper')
         if type(model).__name__!='MAPPO':
-            raise RuntimeError('V15 must use UNGUIDED MAPPO, not GuidedMAPPO')
+            raise RuntimeError('Expected UNGUIDED MAPPO')
         return env,model,graph,dict(arch,station_slots=station_slots,global_feature_dim=feat,
                                     padded_agv_slots=20,sim_seconds=3600,guide_strength=0.,
                                     native_conventional_routing=use_conventional_routing,
                                     dispatch_mask_mode=TOBIAS_DISPATCH_MASK_MODE,
                                     routing_controller=('tobias_collision_free_reservation'
-                                                        if use_conventional_routing else 'unguided_gatv2'))
+                                                        if use_conventional_routing else 'traffic_edge_gatv2'))
     except BaseException:
         env.close()
         raise

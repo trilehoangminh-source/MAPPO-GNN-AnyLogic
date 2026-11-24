@@ -1,10 +1,10 @@
-"""Offline smoke and safety tests. python tests/test_dispatch_paper_mask_v121.py"""
+"""Offline smoke and safety tests. python tests/test_dispatch_mask.py"""
 from pathlib import Path
 import sys
 ROOT=Path(__file__).resolve().parent.parent
 sys.path.insert(0,str(ROOT))
 from thesis.envs.part_variants import MatrixPart
-from thesis.envs.dispatch_paper_mask_v121 import build_operation_first_dispatch_mask as build
+from thesis.envs.dispatch_mask import build_operation_first_dispatch_mask as build
 p=MatrixPart()
 live=[4,9,14,19,24,29,34,39,40,41,42,43,44,49,54,67,68,69,74,83,84,95,96,97,98,99,104]
 

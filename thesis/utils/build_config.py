@@ -10,7 +10,7 @@
 
 #========================= MODULE 01 - CÁC THƯ VIỆN / IMPORT ==========================
 # import/from trong Python tương tự #include ở C, nhưng có hệ thống module và package.
-from ..envs.alpyne121_bridge import Configuration
+from ..envs.alpyne_bridge import Configuration
 #===================== KẾT THÚC MODULE 01 - CÁC THƯ VIỆN / IMPORT =====================
 
 

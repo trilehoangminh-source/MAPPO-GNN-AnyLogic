@@ -1,4 +1,4 @@
-"""Summarize V15 held-out JSONL; descriptive only, not matched Tobias statistical parity."""
+"""Summarize held-out JSONL; descriptive only, without statistical parity claims."""
 #================== MODULE 00 - NẠP THƯ VIỆN VÀ ĐỌC JSONL HELD-OUT ==================
 # Mục đích: Chuẩn bị argparse, JSON và NumPy để thống kê checkpoint cố định.
 # Giải thích: Chỉ đọc log: không chạy AnyLogic và không cập nhật PPO.

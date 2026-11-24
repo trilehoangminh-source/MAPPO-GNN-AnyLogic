@@ -262,7 +262,7 @@ class GraphRoutingActor(nn.Module):
 # Chuyển backbone Routing ở nhánh B3 mà không thay đổi nhiệm vụ Dispatch.
 def upgrade_guided_mappo_to_gnn(model, hive, hidden=32, layers=2):
     """Replace ONLY Routing actor. Must be called before the first rollout or load."""
-    from thesis.mappo.routing_guidance_v121 import enable_routing_distribution_prior
+    from thesis.mappo.routing_guidance import enable_routing_distribution_prior
     from thesis.mappo.networks import Actor
     spec = GraphSpec.from_hive(hive)
     role = model.roles['routing']

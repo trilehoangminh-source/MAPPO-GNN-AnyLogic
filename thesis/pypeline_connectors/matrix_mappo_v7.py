@@ -28,8 +28,8 @@ from types import SimpleNamespace
 # Các biến module được đọc bởi các hàm/lớp bên dưới; gần với biến toàn cục trong C.
 os.environ["MAPPO_DISPATCH_MASK_MODE"] = "operation_first"
 
-from thesis.envs.alpyne121_bridge import Observation
-from .v7_inference import verify_checkpoint, make_inference_policy, greedy_action
+from thesis.envs.alpyne_bridge import Observation
+from .inference_policy import verify_checkpoint, make_inference_policy, greedy_action
 #===================== KẾT THÚC MODULE 01 - CÁC THƯ VIỆN / IMPORT =====================
 
 
@@ -53,7 +53,7 @@ _call_count = 0
 # Dựng môi trường không cần checkpoint để kiểm tra dữ liệu và topology.
 def _make_model_free_environment():
     """Create Tobias observation/behavior converter without launching another AnyLogic."""
-    from thesis.envs.matrix_v121 import Matrix
+    from thesis.envs.matrix import Matrix
     from scripts.train_mappo_long_B3_v121 import SIM_CONFIG
 
     # Matrix.__init__ has an optional reset at the very end that normally starts
@@ -111,7 +111,7 @@ def _ensure_model(env):
     global _model, _collector
     if _model is not None:
         return
-    from thesis.mappo.routing_guidance_v121 import GuidedEventCollector
+    from thesis.mappo.routing_guidance import GuidedEventCollector
     _model = make_inference_policy(CHECKPOINT, RUN_CONFIG, env.agent_hive)
     _collector = GuidedEventCollector(
         _model, env, stop_mask_mode=_config['stop_mask_mode'],

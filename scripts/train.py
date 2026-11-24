@@ -1,6 +1,6 @@
-"""V15: scratch 3600s MAPPO training, Tobias-style actors, staged policy learning.
+"""Train the traffic-aware MAPPO model with full-rollout gradient accumulation.
 
-No change to thesis/mappo/algorithm.py, mappo_stability_v7.py, collector, or Java.
+No change to thesis/mappo/algorithm.py, ppo_stability.py, collector, or Java.
 No Dijkstra guidance in the learned Routing GAT, no reward shaping,
 no V14 deep GAT or candidate scoring. Dispatch-only uses native Tobias
 CollisionFreeRouting with time-window reservations (not GAT guidance).
@@ -27,14 +27,17 @@ from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[1]
 sys.path[:0]=[str(ROOT),str(ROOT/'scripts')]
-from v15_staged_collector import PHASES, StagePolicyAdapter, trained_trajectories
+from stage_policy import PHASES, StagePolicyAdapter, trained_trajectories
+from thesis.mappo.fullrollout_optimizer import enable_fullrollout
+from thesis.mappo.model_architecture import EDGE_FEATURE_NAMES
 
-VERSION='V15_TOBIAS_ARCH_STAGED_NATIVE_ROUTER_MAPPO_V3_TOBIAS_DISPATCH_MASK'
+VERSION='V17B_EDGE7_MESSAGE_GATV2_FULLROLLOUT_GA512_V1'
 PHASE_ORDER=tuple(PHASES)
-DEFAULT_OUT=ROOT/'mappo_runs'/'V15_TOBIAS_ORIGINAL_DISPATCH_MASK_3600S'
-V15_MODEL_MODULE=ROOT/'thesis'/'mappo'/'v15_tobias_arch.py'
-V15_BUILD_MODULE=ROOT/'scripts'/'v15_tobias_build.py'
-V15_STAGE_MODULE=ROOT/'scripts'/'v15_staged_collector.py'
+DEFAULT_OUT=ROOT/'mappo_runs'/'TRAFFIC_EDGE_MESSAGE_GA512'
+MODEL_MODULE=ROOT/'thesis'/'mappo'/'model_architecture.py'
+BUILD_MODULE=ROOT/'scripts'/'model_builder.py'
+STAGE_MODULE=ROOT/'scripts'/'stage_policy.py'
+OPTIMIZER_MODULE=ROOT/'thesis'/'mappo'/'fullrollout_optimizer.py'
 
 
 
@@ -127,7 +130,7 @@ def parse_args(argv=None):
     p.add_argument('--port',type=int,default=51880)
     p.add_argument('--seed',type=int,default=None)
     p.add_argument('--max-events',type=int,default=None)
-    p.add_argument('--max-minibatch',type=int,default=128)
+    p.add_argument('--microbatch-size',dest='max_minibatch',type=int,default=512)
     p.add_argument('--cpu-threads',type=int,default=2)
     p.add_argument('--snapshot-every',type=int,default=10)
     p.add_argument('--dry-run',action='store_true')
@@ -176,24 +179,28 @@ def preflight(a):
     if missing:raise ValueError('Blueprint missing: '+repr(missing))
     if int(cfg['max_fleetsize'])!=20:
         raise ValueError('Must reuse V8/V14 blueprint with max_fleetsize=20')
-    from v15_tobias_build import TOBIAS_JOINT_REWARDS
+    from model_builder import TOBIAS_JOINT_REWARDS
     assert 'reward_part_completed' not in TOBIAS_JOINT_REWARDS
     if a.seed is None:a.seed=int(cfg['seed'])
     if a.max_events is None:a.max_events=int(cfg.get('max_events',100000))
     if a.max_events<1:raise ValueError('max-events must be positive')
+    if int(cfg['mini_batches']) != 1:
+        raise ValueError('Full-rollout requires blueprint mini_batches=1')
     model=Path(a.model or cfg['model_file']).resolve()
     if not model.is_file():
         raise FileNotFoundError('AnyLogic model .zip missing: '+str(model)+'; use --model PATH')
     fingerprints={
-        'architecture':_digest(V15_MODEL_MODULE),
-        'environment_builder':_digest(V15_BUILD_MODULE),
-        'staged_policy':_digest(V15_STAGE_MODULE),
+        'architecture':_digest(MODEL_MODULE),
+        'environment_builder':_digest(BUILD_MODULE),
+        'staged_policy':_digest(STAGE_MODULE),
+        'full_rollout_optimizer':_digest(OPTIMIZER_MODULE),
+        'training_runner':_digest(Path(__file__).resolve()),
         'ppo_algorithm':_digest(ROOT/'thesis'/'mappo'/'algorithm.py'),
-        'ppo_stability':_digest(ROOT/'thesis'/'mappo'/'mappo_stability_v7.py'),
-        'event_collector':_digest(ROOT/'thesis'/'mappo'/'collector_stop_ab.py'),
-        'matrix_environment':_digest(ROOT/'thesis'/'envs'/'matrix_v121.py'),
-        'behaviors':_digest(ROOT/'thesis'/'envs'/'behaviors_v121.py'),
-        'alpyne_bridge':_digest(ROOT/'thesis'/'envs'/'alpyne121_bridge.py'),
+        'ppo_stability':_digest(ROOT/'thesis'/'mappo'/'ppo_stability.py'),
+        'event_collector':_digest(ROOT/'thesis'/'mappo'/'collector.py'),
+        'matrix_environment':_digest(ROOT/'thesis'/'envs'/'matrix.py'),
+        'behaviors':_digest(ROOT/'thesis'/'envs'/'behaviors.py'),
+        'alpyne_bridge':_digest(ROOT/'thesis'/'envs'/'alpyne_bridge.py'),
         'reward_config':hashlib.sha256(json.dumps(TOBIAS_JOINT_REWARDS,sort_keys=True).encode()).hexdigest(),
     }
     p=PHASE_ORDER.index(a.phase)
@@ -238,7 +245,16 @@ def _meta(a,cfg,blueprint,model,fingerprints,phaseidx):
         snapshot_every=a.snapshot_every,blueprint_sha256=_digest(blueprint),
         blueprint_file=str(blueprint),anylogic_sha256=_digest(model),
         model_file=str(model),fingerprints=fingerprints,
-        architecture='Tobias GATv2 2x4 + LinFE x2 + CTDE MLP x3',
+        architecture='7-edge conditioned attention+message GATv2 2x4/32 (no mask) + LinFE/CTDE',
+        edge_features=list(EDGE_FEATURE_NAMES),
+        edge_attention_conditioned=True,
+        edge_message_conditioned=True,
+        edge_dimension=len(EDGE_FEATURE_NAMES),
+        stationary_occupancy_is_proxy=True,
+        traffic_observation_only=True,
+        routing_action_mask_applied=False,
+        ppo_update_mode='full_rollout_gradient_accumulation',
+        ppo_microbatch_size=a.max_minibatch,
         original_tobias_dispatch='random_when_training_routing',
         dispatch_pretraining_router='Tobias native CollisionFreeRouting (time-window reservation)',
         reward_source='Tobias training_disp_rout.ipynb joint configuration',
@@ -402,18 +418,18 @@ def run(argv=None):
     # In thông tin, không khởi tạo AnyLogic, không train.
 
     if a.dry_run:
-        print('[V15 DRY RUN OK] phase=',a.phase,'fleet=',PHASES[a.phase][0],
+        print('[TRAIN DRY RUN OK] phase=',a.phase,'fleet=',PHASES[a.phase][0],
               'roles=',PHASES[a.phase][1],'sim=3600 seconds',flush=True)
-        print('[V15 DRY RUN OK] GAT Dijkstra guidance=OFF; dispatch8 native Tobias CollisionFreeRouting=ON; stop mask=original')
-        print('[V15 DRY RUN OK] AnyLogic ZIP=',simulator)
-        print('[V15 DRY RUN OK] blueprint=',blueprint)
+        print('[TRAIN DRY RUN OK] GAT Dijkstra guidance=OFF; dispatch8 native Tobias CollisionFreeRouting=ON; stop mask=original')
+        print('[TRAIN DRY RUN OK] AnyLogic ZIP=',simulator)
+        print('[TRAIN DRY RUN OK] blueprint=',blueprint)
         if joint_sources:
-            print('[V15 DRY RUN OK] joint8 role-wise sources:',joint_sources,flush=True)
+            print('[TRAIN DRY RUN OK] joint8 role-wise sources:',joint_sources,flush=True)
         if a.init_checkpoint is not None:
-            print('[V15 DRY RUN OK] joint16 EP0 source:',expected['init_checkpoint'],
+            print('[TRAIN DRY RUN OK] joint16 EP0 source:',expected['init_checkpoint'],
                   'sha256=',expected['init_checkpoint_sha256'],flush=True)
-        print('[V15 DRY RUN OK] Dispatch mask=Tobias original union',flush=True)
-        print('[V15 DRY RUN OK] no environment launched and no output modified')
+        print('[TRAIN DRY RUN OK] Dispatch mask=Tobias original union',flush=True)
+        print('[TRAIN DRY RUN OK] no environment launched and no output modified')
         return
 
     #======================= PHẦN RUN-03 - RESUME HAY KHỞI TẠO EP0 =======================
@@ -454,10 +470,10 @@ def run(argv=None):
 
     import numpy as np
     import torch
-    from v15_tobias_build import build_v15, TOBIAS_DISPATCH_MASK_MODE
-    from thesis.mappo.collector_stop_ab import EventCollector
-    from thesis.mappo.gnn_routing_B3_v121 import GraphSpec
-    from thesis.mappo.mappo_stability_v7 import audit_rollout_roles
+    from model_builder import build_model, TOBIAS_DISPATCH_MASK_MODE
+    from thesis.mappo.collector import EventCollector
+    from thesis.mappo.routing_graph import GraphSpec
+    from thesis.mappo.ppo_stability import audit_rollout_roles
     os.environ['MAPPO_MAX_MINIBATCH']=str(a.max_minibatch)
     os.environ['MAPPO_DISPATCH_MASK_MODE']=TOBIAS_DISPATCH_MASK_MODE
     for name in ('OMP_NUM_THREADS','MKL_NUM_THREADS','OPENBLAS_NUM_THREADS'):
@@ -473,14 +489,20 @@ def run(argv=None):
         #=================== PHẦN RUN-05 - KHỞI TẠO ANYLOGIC VÀ MẠNG MAPPO ===================
         # Builder cung cấp environment, ba role và đồ thị giao thông.
 
-        env,model,graph,arch=build_v15(cfg,model_path=simulator,
+        env,model,graph,arch=build_model(cfg,model_path=simulator,
             fleet_size=PHASES[a.phase][0],port=a.port,device=a.device,seed=a.seed,
             max_events=a.max_events,sim_seconds=3600,checkpoint=ck,phase=a.phase)
+        try:
+            arch.update(enable_fullrollout(model, microbatch_size=a.max_minibatch))
+        except Exception:
+            env.close()
+            env = None
+            raise
         if a.init_checkpoint is not None:
             from dataclasses import asdict
             loaded_cfg=torch.load(str(ck),map_location='cpu',weights_only=True).get('config')
             if loaded_cfg!=asdict(model.cfg):
-                raise RuntimeError('Initial checkpoint MAPPOConfig differs from V15 configuration')
+                raise RuntimeError('Initial checkpoint MAPPOConfig differs from current configuration')
         if joint_sources:
             _load_joint_roles(model,joint_sources)
 
@@ -503,9 +525,9 @@ def run(argv=None):
             _atomic_json(out/'experiment.json',expected)
             (out/'metrics.jsonl').touch(exist_ok=False)
             _atomic_json(out/'state.json',state)
-            print('[V15 PHASE INITIALIZED]',a.phase,'EP0','src=',ck,flush=True)
+            print('[TRAIN PHASE INITIALIZED]',a.phase,'EP0','src=',ck,flush=True)
         if a.init_only:
-            print('[V15 INIT ONLY] No training conducted');return
+            print('[TRAIN INIT ONLY] No training conducted');return
         # No guidance, no GNN wrapper, no collector/algorithm source edits.
 
         #================== PHẦN RUN-07 - KẾT NỐI POLICY VÀ EVENT COLLECTOR ==================
@@ -597,16 +619,16 @@ def run(argv=None):
                 state['snapshots'].append(str(snapshot.resolve()))
             _atomic_json(out/'state.json',state)
             stats=meta.get('statistics',{})
-            print(f'[V15 {a.phase.upper()} EP{ep}] '
+            print(f'[TRAIN {a.phase.upper()} EP{ep}] '
                   f'AGV={PHASES[a.phase][0]} JobDone={stats.get("jobDone",0)} '
                   f'Block={stats.get("block",0)} LiveLock={stats.get("liveLock",0)} '
                   f'Reward={meta.get("delivered_reward",0.):.2f} '
                   f'Updated={sorted(updates)} Elapsed={elapsed:.1f}s',flush=True)
     except KeyboardInterrupt:
-        print('[V15 INTERRUPTED] Last committed EP',state['last_episode'],flush=True)
+        print('[TRAIN INTERRUPTED] Last committed EP',state['last_episode'],flush=True)
     finally:
         if env is not None:env.close()
-    print('[V15 PHASE DONE]',a.phase,'committed EP',state['last_episode'],'output',out,flush=True)
+    print('[TRAIN PHASE DONE]',a.phase,'committed EP',state['last_episode'],'output',out,flush=True)
 
 #=========== KẾT THÚC MODULE 13 - HÀM ĐIỀU PHỐI TOÀN BỘ QUÁ TRÌNH TRAINING ===========
 
