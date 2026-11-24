@@ -95,6 +95,21 @@ Giữ các mốc V15/V16/V17 để truy vết; chi tiết dài đặt trong cont
 | 24/11/2026 | Lập hướng dẫn dự án và quy tắc bàn giao 20 tin nhắn | Tạo `Readme/Skill.md`; `Readme/Context/` đã có sẵn |
 | 24/11/2026 | Thêm quy trình chốt thiết kế ở phiên chat khác rồi bàn giao cho AI code | Mục 2.7; tài liệu thiết kế do người dùng gửi là căn cứ triển khai |
 
+### 1.5. Phát triển phiên bản mới trên source hiện có, bảo tồn bằng GitHub
+
+**Sửa trực tiếp các file source hiện có khi phát triển phiên bản mới.** Không tạo bản sao `V18`, `V19`… của cùng chức năng chỉ để giữ code phiên bản trước. Lịch sử Git và các nhánh trên GitHub đảm nhiệm việc bảo tồn source cũ. Chỉ thêm file khi thực sự cần một chức năng/module mới; không nhân bản cả bộ runner/actor/evaluator theo số phiên bản.
+
+Trước khi sửa source để nâng phiên bản, thực hiện đúng thứ tự:
+
+1. Kiểm tra nhánh hiện tại, working tree và các thay đổi cần bảo tồn. Commit source hiện tại lên nhánh phiên bản hiện tại rồi push nhánh đó lên GitHub (ví dụ V17 → `feature/v17b-edge7-message`). Chọn đúng file dự án; không tự đưa checkpoint, môi trường ảo, log tạm hoặc bí mật vào commit.
+2. Xác nhận push thành công và SHA commit trên nhánh GitHub khớp với commit local cần bảo tồn; không chỉ dựa vào thông báo commit local hoặc remote-tracking ref cũ. Nếu push/xác minh thất bại, xử lý trước khi sửa source phiên bản mới.
+3. Sau khi xác nhận đã lưu V17 trên GitHub, tạo và chuyển sang nhánh V18 theo tên nhánh đã chọn cho thiết kế mới. Chỉ lúc này mới chỉnh source hiện tại để triển khai V18. Đây là quy trình đã được người dùng yêu cầu cho các lần nâng phiên bản, không cần hỏi lại chỉ vì phải backup/push và tạo nhánh theo quy trình này; các giới hạn quyền của môi trường vẫn áp dụng.
+4. Cập nhật version/metadata, tài liệu và kiểm thử liên quan trên nhánh mới. Giữ nguyên tên/đường dẫn source khi phù hợp; tên cũ như `v16b_*` không bắt buộc phải đổi hoặc sao chép thành `v18_*`. Ghi mapping phiên bản thực tế trong Skill.md/context để tránh nhầm.
+
+Không dùng cách đóng gói tạo thêm bộ code theo từng phiên bản chỉ để giải nén song song và giữ code cũ. Nếu cần bàn giao ZIP, dùng đúng đường dẫn tương đối của các file hiện có để có thể ghi đè sau khi đã bảo tồn source trên GitHub. Không xóa hàng loạt các file nền V15/V16 đang được import; việc dọn hoặc hợp nhất chúng cần kiểm tra dependency và nằm trong phạm vi thay đổi được giao.
+
+Git bảo tồn source; checkpoint/metrics trong `mappo_runs/` vẫn cần giữ riêng theo phiên bản thí nghiệm. Trước khi ghi đè source đang phục vụ training/resume, kiểm tra tiến trình đang chạy và cơ chế hash; không vô hiệu hóa hash hoặc ghi đè dữ liệu run cũ để tiếp tục phiên bản mới. Không tạo PR hay merge nếu chưa có yêu cầu tương ứng.
+
 ## PHẦN 2 — QUY TẮC PHIÊN CHAT, ĐỌC TÀI LIỆU VÀ CONTEXT
 
 ### 2.1. Đầu một phiên chat mới
