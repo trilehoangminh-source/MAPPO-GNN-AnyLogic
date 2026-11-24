@@ -93,6 +93,7 @@ Giữ các mốc V15/V16/V17 để truy vết; chi tiết dài đặt trong cont
 | Ngày | Phiên bản / thay đổi | Bằng chứng / trạng thái |
 |---|---|---|
 | 24/11/2026 | Lập hướng dẫn dự án và quy tắc bàn giao 20 tin nhắn | Tạo `Readme/Skill.md`; `Readme/Context/` đã có sẵn |
+| 24/11/2026 | Thêm quy trình chốt thiết kế ở phiên chat khác rồi bàn giao cho AI code | Mục 2.7; tài liệu thiết kế do người dùng gửi là căn cứ triển khai |
 
 ## PHẦN 2 — QUY TẮC PHIÊN CHAT, ĐỌC TÀI LIỆU VÀ CONTEXT
 
@@ -155,3 +156,15 @@ Phiên A tạo context A ở mốc 20 → phiên B đọc Skill.md và context A
 - **Context mới nhất:** chưa tạo; `Readme/Context/` đang trống ở thời điểm lập file này.
 - **Mốc đếm phiên đang tạo file:** tin nhắn yêu cầu tạo `Readme/Skill.md` ngày 24/11/2026 là **9/20**. Tin nhắn thật kế tiếp trong cùng khung chat là 10/20; các tin kỹ thuật `external_codex_apps_*` tự chèn không tính.
 - **Mốc công việc:** EP490 đã evaluate xong 20/20 seed; yêu cầu hiện tại là lập Skill.md. Khi tiếp tục ở phiên mới, bộ đếm bắt đầu từ 1; không dùng 9/20 làm bộ đếm cho phiên mới.
+
+### 2.7. Bàn giao phương án thiết kế từ phiên chat khác để triển khai code
+
+Người dùng thường thảo luận thuật toán/giải thuật với AI trong ứng dụng hoặc giao diện chat trên web. Quy trình làm việc đã thống nhất:
+
+1. **Cung cấp nền dự án:** người dùng gửi `Readme/Skill.md` và context mới nhất cho AI ở phiên thảo luận để AI hiểu phiên bản, source, kết quả và quyết định đang có.
+2. **Thảo luận và chốt:** sau khi thống nhất phương án, người dùng yêu cầu AI đó xuất một file `.md` ghi đầy đủ những gì đã chốt. File nên nêu mục tiêu, phiên bản nền/đích, thuật toán/công thức, dữ liệu vào/ra, tham số, phạm vi thay đổi, điều kiện phải giữ, cách chuyển checkpoint và tiêu chí kiểm tra khi có liên quan. Phân biệt rõ quyết định đã chốt với ý tưởng còn mở.
+3. **Bàn giao cho AI code:** người dùng gửi file `.md` chốt thiết kế và yêu cầu triển khai. AI code phải đọc file này cùng Skill.md/context liên quan, đối chiếu source hiện tại, rồi tiến hành code theo phương án đã chốt. Không tự thay bằng phương án thuật toán khác hoặc mở lại toàn bộ cuộc thảo luận đã kết thúc.
+4. **Xử lý điểm thiếu hoặc xung đột:** quyết định mới được người dùng chốt có thể thay thế thiết kế cũ trong Skill.md/context. Nếu có mâu thuẫn chưa rõ, thiếu thông tin làm thay đổi thuật toán, hoặc source không hỗ trợ như tài liệu giả định, nêu chính xác điểm cần làm rõ; tiếp tục các phần độc lập có đủ căn cứ. Không tự bịa quyết định thay người dùng. Các chi tiết triển khai thông thường có thể tự giải quyết trong phạm vi thiết kế.
+5. **Ghi lại kết quả triển khai:** dẫn tên/đường dẫn tài liệu thiết kế trong nhật ký phiên bản và context tiếp theo; ghi phần đã code, các sai khác đã được thống nhất, kiểm tra thực sự đã chạy và việc còn chờ. Không ghi phương án là “đã triển khai” chỉ vì đã có file chốt thiết kế.
+
+File `.md` chốt thiết kế mô tả **cần xây dựng gì**; context mô tả **dự án hiện đang ở đâu**. Khi bàn giao, giữ liên kết tới cả hai để AI sau tiếp tục chính xác. Việc nhận file thiết kế để đọc chưa tự đồng nghĩa với yêu cầu chạy training, push GitHub, PR hoặc merge; thực hiện các bước đó theo phạm vi người dùng giao.
