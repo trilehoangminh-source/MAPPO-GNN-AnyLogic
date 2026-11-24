@@ -1,0 +1,32 @@
+V16-B Traffic-Aware Edge-GATv2 + MAPPO (overlay-only source package)
+Reference GitHub branch checked: refactor/v15-minimal
+Reference commit observed 2026-11-19: e7333e5f530bd37de72ade6b584a5b850af30bac
+The user's local V15 branch may have more recent changes; push/backup before extraction.
+
+Additive files (no existing V15 code overwritten):
+- thesis/mappo/v16b_traffic_edge.py
+- scripts/train_v16b_fullrollout.py
+- scripts/evaluate_v16b_traffic.py
+- scripts/v16b.ps1
+- tests/test_v16b_traffic_edge.py
+- README_V16B_TRAFFIC_EDGE_GATV2_VI.md
+- RELEASE_V16B_TEST_REPORT.txt
+
+Validation performed in build environment:
+- Python syntax compileall: passed
+- six unit tests: passed (against an OFFLINE shape-compatible V15 scaffold)
+- V15 code source API checked directly via GitHub connector: Actor/GraphSpec,
+  route observation fields, collector, checkpointing, staged/fullrollout flow.
+
+NOT yet performed:
+- End-to-end Windows AnyLogic + Alpyne runtime test
+- Integration test against user's local exact V15 checkout
+- Live GPU training, benchmark throughput and held-out evaluation
+
+Expected invariants:
+- Routing unmasked (as V15/Tobias); no MAPF and no Dijkstra.
+- Dispatch and Critic network structure unchanged.
+- V15 checkpoint initialization preserves actor/critic/ValueNorm and all
+  optimizer state EXCEPT Routing actor Adam, reset for new parameters.
+- Extra traffic features computed only from actor-visible observation.
+- V16 outputs separate from V15; V15 code and checkpoints not overwritten.

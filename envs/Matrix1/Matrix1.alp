@@ -19736,44 +19736,6 @@ root.station_io_quote = station_io_quote;
 ]]></ConfigurationCode>
 		</ReinforcementLearningExperiment>
 	</Experiments>
-	<ModelResources>
-		<Resource>
-			<Id>1655914269999</Id>
-			<Path><![CDATA[3d/computer_on.dae]]></Path>
-			<ReferencedFromUserCode>false</ReferencedFromUserCode>
-			<Location>FILE_SYSTEM</Location>
-		</Resource>
-		<Resource>
-			<Id>1655914269998</Id>
-			<Path><![CDATA[3d/washer.dae]]></Path>
-			<ReferencedFromUserCode>false</ReferencedFromUserCode>
-			<Location>FILE_SYSTEM</Location>
-		</Resource>
-		<Resource>
-			<Id>1655914269997</Id>
-			<Path><![CDATA[3d/robot_1.dae]]></Path>
-			<ReferencedFromUserCode>false</ReferencedFromUserCode>
-			<Location>FILE_SYSTEM</Location>
-		</Resource>
-		<Resource>
-			<Id>1655914269996</Id>
-			<Path><![CDATA[3d/fire.dae]]></Path>
-			<ReferencedFromUserCode>false</ReferencedFromUserCode>
-			<Location>FILE_SYSTEM</Location>
-		</Resource>
-		<Resource>
-			<Id>1655914269995</Id>
-			<Path><![CDATA[3d/bicycle.dae]]></Path>
-			<ReferencedFromUserCode>false</ReferencedFromUserCode>
-			<Location>FILE_SYSTEM</Location>
-		</Resource>
-		<Resource>
-			<Id>1655914269994</Id>
-			<Path><![CDATA[Layout_new.png]]></Path>
-			<ReferencedFromUserCode>false</ReferencedFromUserCode>
-			<Location>FILE_SYSTEM</Location>
-		</Resource>
-	</ModelResources>
     <RequiredLibraryReference>
 		<LibraryName><![CDATA[com.anylogic.libraries.modules.markup_descriptors]]></LibraryName>
 		<VersionMajor>1</VersionMajor>
