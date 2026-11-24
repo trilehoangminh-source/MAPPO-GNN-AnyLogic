@@ -1,26 +1,17 @@
-#============ GIẢI THÍCH FILE: TRAFFIC-AWARE EDGE-GATV2 - TRỌNG TÂM V16-B =============
-# Tính edge_attr từ observation và thêm thành phần cạnh vào attention score; giữ Routing không mask.
-# BẢN ĐỌC HIỂU: chỉ bổ sung comment/khoảng trắng; KHÔNG thay đổi câu lệnh gốc.
-# Lưu ý: comment vẫn làm thay đổi SHA256 của file (cần init run mới nếu dùng train).
-#================================ HẾT GIỚI THIỆU FILE =================================
+#=============== V17-B: 7 EDGE FEATURES + EDGE-CONDITIONED MESSAGE PASSING ===============
+# Kế thừa 4 feature V16-B, bổ sung 3 feature, đưa edge vào Attention VÀ Message.
+# Giữ nguyên 2 GAT layers / 4 heads / embedding32 / routing UNMASKED / Reward Tobias.
+# V17-B PHẢI khởi tạo run mới; checkpoint V16-B không được resume bằng source V17-B.
+#============================ HẾT GIỚI THIỆU FILE ============================
 
 
-"""V16-B Traffic-Aware Edge-GATv2, additive to the exact V15 architecture.
+"""V17-B: 7 causal edge features; edge-conditioned attention AND message.
 
-Observed AGV fields (Tobias MultiAgent._state_dict):
-  agvs[...,0] in_system; [...,1] moving; [...,2:4] last_node;
-  [...,4:6] next_node; [...,6:8] target_node.
-
-Four causal, normalized per-directed-edge features (from actor-visible obs only):
-  0 geometrical length / max network-arc length
-  1 number of OTHER moving AGVs on sender->receiver / 20
-  2 number of OTHER moving AGVs on receiver->sender / 20
-  3 number of OTHER in-system AGVs with next_node == receiver / 20
-
-All features use only current actor observations; no global privileged state,
-future simulator information, or conventional-routing reservations.  Message
-passing retains Tobias's original 2-layer/4-head/32-dimensional architecture.
-Action distribution remains UNMASKED as in V15/Tobias.
+Authoritative design: THIET_KE_V17B_7_EDGE_FEATURES_EDGE_CONDITIONED_MESSAGE_PASSING.md
+obs AGV[...,0]=in_system, 1=moving, 2:4=last_node, 4:6=next_node,
+6:8=target_node; ego is slot 0 and is excluded from OTHER traffic counts.
+All updates are recomputed from actor-visible observations; directed topology
+is from Hive GraphSpec. Stationary occupancy is only a conservative proxy.
 """
 
 
@@ -46,6 +37,9 @@ EDGE_FEATURE_NAMES = (
     'other_same_direction_flow_per_20',
     'other_opposite_direction_flow_per_20',
     'other_downstream_next_node_pressure_per_20',
+    'other_stationary_last_equals_next_proxy_per_20',
+    'other_goal_destination_demand_per_20',
+    'topological_bottleneck_score',
 )
 EDGE_DIM = len(EDGE_FEATURE_NAMES)
 NORMALIZATION_AGV_SLOTS = 20
@@ -55,30 +49,32 @@ NORMALIZATION_AGV_SLOTS = 20
 
 
 #============================ MODULE 03 - LỚP TRAFFICGATV2 ============================
-# GATv2 V16-B: thêm W_edge · edge_attr vào attention score; không thay message value.
+# V17-B: edge_attr đi vào cả attention score và nội dung message.
 class TrafficGATv2(TobiasGATv2):
-    """Tobias GATv2 + edge term in ATTENTION SCORE (not in message value).
+    """Tobias GATv2 with independent edge attention/message projections.
 
-    Zero initialization ensures an upgraded actor initially computes EXACTLY
-    the V15 GAT scores, despite its expanded parameterization.
+    Both edge projections start at zero: transferred V15 weights initially
+    reproduce node-only V15 GATv2 at the same fixed input.
     """
 
 
 
     #============================ MODULE CON 01 - __INIT__ ============================
-    # Mục đích: Khởi tạo phép chiếu edge_attr thành vector theo từng head; trọng số edge = 0 để lúc đầu giống V15.
+    # Mục đích: Hai phép chiếu cạnh độc lập (attention và message), khởi tạo 0 để tương thích V15.
     # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def __init__(self, embedding: int = 32, heads: int = 4):
         super().__init__(embedding=embedding, heads=heads)
-        self.edge_lin = nn.Linear(EDGE_DIM, embedding * heads, bias=False)
-        nn.init.zeros_(self.edge_lin.weight)
+        self.edge_att_lin = nn.Linear(EDGE_DIM, embedding * heads, bias=False)
+        self.edge_msg_lin = nn.Linear(EDGE_DIM, embedding * heads, bias=False)
+        nn.init.zeros_(self.edge_att_lin.weight)
+        nn.init.zeros_(self.edge_msg_lin.weight)
     #======================= KẾT THÚC MODULE CON 01 - __INIT__ ========================
 
 
 
 
     #============================ MODULE CON 02 - FORWARD =============================
-    # Mục đích: Tính attention: W_dst·h_j + W_src·h_i + W_edge·e_ij; softmax theo node nhận rồi gom thông điệp.
+    # Mục đích: Tính attention và message có điều kiện cạnh, gom theo node nhận.
     # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def forward(self, x: torch.Tensor, edge_index: torch.Tensor,
                 edge_attr: torch.Tensor) -> torch.Tensor:
@@ -94,11 +90,12 @@ class TrafficGATv2(TobiasGATv2):
         # Chiếu đặc trưng thành tensor theo attention head.
         left = self.linear_dst(x).view(b, n, h, d)
         right = self.linear_src(x).view(b, n, h, d)
-        edge_emb = self.edge_lin(edge_attr).view(b, count, h, d)
+        edge_att = self.edge_att_lin(edge_attr).view(b, count, h, d)
+        edge_msg = self.edge_msg_lin(edge_attr).view(b, count, h, d)
 
         #========================= MỤC NHỎ - ATTENTION SCORE ==========================
-        # Thêm embedding cạnh vào score trước LeakyReLU và attention vector.
-        pair = nn.functional.leaky_relu(left[:, rec] + right[:, send] + edge_emb, .2)
+        # Embedding cạnh cho attention; message có phép chiếu riêng bên dưới.
+        pair = nn.functional.leaky_relu(left[:, rec] + right[:, send] + edge_att, .2)
         scores = (pair * self.att[None, None]).sum(-1).permute(0, 2, 1)
         index = rec.view(1, 1, count).expand(b, h, -1)
         with torch.no_grad():
@@ -114,8 +111,9 @@ class TrafficGATv2(TobiasGATv2):
         sources = right[:, send].permute(0, 2, 1, 3)
 
         #========================= MỤC NHỎ - MESSAGE PASSING ==========================
-        # Nhân thông điệp node gửi với attention rồi scatter_add vào node nhận.
-        weighted = sources * weights.unsqueeze(-1)
+        # V17-B: nội dung message = node nguồn + thông tin cạnh (khác với V16-B).
+        messages = sources + edge_msg.permute(0, 2, 1, 3)
+        weighted = messages * weights.unsqueeze(-1)
         result = torch.zeros((b, h, n, d), dtype=x.dtype, device=x.device)
         result.scatter_add_(2, index.unsqueeze(-1).expand(-1, -1, -1, d), weighted)
         return result.mean(1) + self.bias
@@ -127,16 +125,16 @@ class TrafficGATv2(TobiasGATv2):
 
 
 #======================== MODULE 04 - LỚP TRAFFICROUTINGACTOR =========================
-# Routing V16-B: kế thừa encoder V15, tính 4 đặc trưng cạnh rồi tạo logits.
+# Routing V17-B: giữ encoder V15, 7 feature cạnh, attention + message.
 class TrafficRoutingActor(TobiasGraphRoutingActor):
-    """Drop-in V15 Routing actor with causal traffic-aware edge attention."""
+    """Drop-in V15 actor with observation-only 7-edge message/attention."""
     action_dim = 5
     uses_action_mask = False
 
 
 
     #============================ MODULE CON 01 - __INIT__ ============================
-    # Mục đích: Thay hai lớp GAT V15 bằng TrafficGATv2, nạp trọng số tương thích và ghi chiều dài cạnh cố định.
+    # Mục đích: Thay GAT V15 bằng V17-B, nạp node weights, tính độ dài và bottleneck tĩnh.
     # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def __init__(self, graph, embedding: int = 32, heads: int = 4, layers: int = 2):
         super().__init__(graph, embedding=embedding, heads=heads, layers=layers)
@@ -144,7 +142,7 @@ class TrafficRoutingActor(TobiasGraphRoutingActor):
         self.convs = nn.ModuleList([TrafficGATv2(embedding, heads) for _ in range(layers)])
         for new, prev in zip(self.convs, old):
             missing, extra = new.load_state_dict(prev.state_dict(), strict=False)
-            if set(missing) != {'edge_lin.weight'} or extra:
+            if set(missing) != {'edge_att_lin.weight', 'edge_msg_lin.weight'} or extra:
                 raise RuntimeError(f'Bad V15 GAT transfer: missing={missing}, extra={extra}')
         src, dst = self.edge_index[1], self.edge_index[0]
         lengths = torch.linalg.vector_norm(self.node_xy[src] - self.node_xy[dst], dim=-1)
@@ -153,82 +151,90 @@ class TrafficRoutingActor(TobiasGraphRoutingActor):
         max_len = real.max().clamp_min(1e-6) if real.numel() else lengths.new_tensor(1.)
         self.register_buffer('edge_lengths_norm', (lengths / max_len) * nonself.to(lengths.dtype), persistent=False)
         self.register_buffer('edge_nonself', nonself, persistent=False)
+
+        # Feature 7: static directed exit restriction, excluding reverse to sender.
+        # GraphSpec.arcs contains ONLY real directed arcs, not dummy/self loops.
+        real_arcs = {(int(u), int(v)) for u, v in graph.arcs}
+        out_neighbors: dict[int, set[int]] = {}
+        for u, v in real_arcs:
+            out_neighbors.setdefault(u, set()).add(v)
+        bottleneck = lengths.new_zeros((len(src),))
+        for edge_k, (u, v) in enumerate(zip(src.tolist(), dst.tolist())):
+            if u != v and (u, v) in real_arcs:
+                exits = len(out_neighbors.get(v, set()) - {u})
+                bottleneck[edge_k] = 1.0 / (1.0 + exits)
+        self.register_buffer('edge_bottleneck', bottleneck, persistent=False)
     #======================= KẾT THÚC MODULE CON 01 - __INIT__ ========================
 
 
 
 
     #======================== MODULE CON 02 - TRAFFIC_FEATURES ========================
-    # Mục đích: Từ obs của Actor tạo tensor [batch, số_cạnh, 4]; bỏ ego/padded, đếm luồng cùng/ ngược và áp lực next_node.
+    # Mục đích: 7 đặc trưng cạnh [B,E,7] lấy từ observation hiện tại, không dùng oracle.
     # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def traffic_features(self, obs: dict) -> torch.Tensor:
-        """[batch, E, 4], exact order of self.edge_index, no stateful cache.
+        """Return [batch, E, 7] in the fixed V17-B feature order.
 
-        The first AGV row is the current ego, excluded from traffic counts.
-        Other rows are randomized/padded by Tobias; contributions are symmetric
-        with respect to that order and masked by in_system.
+        Receiver is edge_index[0], sender is edge_index[1]. Exclude ego row 0,
+        non-system and padded AGVs. f5 is a conservative stationary PROXY.
         """
-
-        #========================= MỤC NHỎ - LẤY OBSERVATION ==========================
-        # Đọc AGV tensor; chiều đầu là batch, chiều thứ hai là số slot AGV.
         agvs = obs['agvs']
         b, n_agvs, dim = agvs.shape
         if dim < 18:
-            raise ValueError('Routing observation missing moving/last/next fields')
+            raise ValueError('Routing observation missing 18 required AGV fields')
         n = self.node_xy.shape[0]
         count = self.edge_index.shape[1]
         rec, send = self.edge_index[0], self.edge_index[1]
-
-        # Only in-system, non-ego AGVs. Padded rows must not create fake traffic.
-
-        #========================== MỤC NHỎ - LỌC AGV HỢP LỆ ==========================
-        # Chỉ tính các xe đang trong hệ thống; loại ego ở hàng đầu và padding.
-        valid = agvs[:, :, 0] > 0.5
-        valid = valid.clone()
-        valid[:, 0] = False
+        valid = (agvs[:, :, 0] > 0.5).clone()
+        valid[:, 0] = False  # ignore ego AGV
         last = self._node_indices(agvs[:, :, 2:4])
         nxt = self._node_indices(agvs[:, :, 4:6])
+        goal = self._node_indices(agvs[:, :, 6:8])
         moving = valid & (agvs[:, :, 1] > 0.5) & (last != nxt)
 
-        # Directional moving flow, counted per actual directed (last,next) pair.
-        # N*N may look dense, but N~106 and scatter is far cheaper than B*E*AGV
-        # pairwise comparison in the PPO full-rollout microbatch.
-
-        #======================= MỤC NHỎ - ĐẾM XE THEO CẶP NODE =======================
-        # Đánh số cặp last/next thành một chỉ mục để scatter_add hiệu quả.
+        # f2/f3: actual directional (last, next) pairs for OTHER moving AGVs.
         pair_index = last * n + nxt
         pair_flow = agvs.new_zeros((b, n * n))
         pair_flow.scatter_add_(1, pair_index, moving.to(agvs.dtype))
         same = pair_flow[:, send * n + rec]
         opposite = pair_flow[:, rec * n + send]
 
-        # A physical queue length is NOT available in Tobias obs. This feature
-        # is explicitly only next-node pressure (vehicles approaching / at dst).
+        # f4: next-node pressure; f5: reliable stationary proxy (last==next);
+        # f6: target-node demand. These node-centric counts share receiver v.
+        pressure_node = agvs.new_zeros((b, n))
+        pressure_node.scatter_add_(1, nxt, valid.to(agvs.dtype))
+        pressure = pressure_node[:, rec]
 
-        #======================== MỤC NHỎ - ÁP LỰC NODE ĐẦU RA ========================
-        # Đếm xe khác có next_node ở đầu ra; đây KHÔNG phải queue length vật lý.
-        pressure_per_node = agvs.new_zeros((b, n))
-        pressure_per_node.scatter_add_(1, nxt, valid.to(agvs.dtype))
-        pressure = pressure_per_node[:, rec]
-        active_arc = self.edge_nonself.to(agvs.dtype).unsqueeze(0)
+        stationary = valid & (agvs[:, :, 1] <= 0.5) & (last == nxt)
+        stationary_node = agvs.new_zeros((b, n))
+        stationary_node.scatter_add_(1, nxt, stationary.to(agvs.dtype))
+        occupancy_proxy = stationary_node[:, rec]
 
-        #======================== MỤC NHỎ - GHÉP EDGE FEATURES ========================
-        # Ghép [chiều dài, luồng cùng, luồng ngược, áp lực đầu ra] và chuẩn hóa trên 20 slot.
+        demand_node = agvs.new_zeros((b, n))
+        demand_node.scatter_add_(1, goal, valid.to(agvs.dtype))
+        demand = demand_node[:, rec]
+
+        # f1 and f7 are static from the REAL graph; f7 ignores self/dummy.
+        static_length = self.edge_lengths_norm.to(dtype=agvs.dtype).unsqueeze(0).expand(b, count)
+        static_bottleneck = self.edge_bottleneck.to(dtype=agvs.dtype).unsqueeze(0).expand(b, count)
         features = torch.stack((
-            self.edge_lengths_norm.to(agvs.dtype).unsqueeze(0).expand(b, count),
+            static_length,
             same / NORMALIZATION_AGV_SLOTS,
             opposite / NORMALIZATION_AGV_SLOTS,
             pressure / NORMALIZATION_AGV_SLOTS,
+            occupancy_proxy / NORMALIZATION_AGV_SLOTS,
+            demand / NORMALIZATION_AGV_SLOTS,
+            static_bottleneck,
         ), dim=-1)
-        # Self loops are structural, not physical arcs. No traffic on self arcs.
-        return features * active_arc.unsqueeze(-1)
+        active_arc = self.edge_nonself.to(dtype=agvs.dtype).view(1, count, 1)
+        return features * active_arc
     #=================== KẾT THÚC MODULE CON 02 - TRAFFIC_FEATURES ====================
 
 
 
 
     #============================= MODULE CON 03 - LOGITS =============================
-    # Mục đích: Giữ node encoder/action head V15; chèn edge_attr vào hai lớp GATv2 và trả về 5 logits Routing.
+    # Mục đích: Giữ node encoder/action head V15, chèn edge_attr vào attention và message ở cả hai lớp.
     # Cú pháp: self là đối tượng đang xử lý (gần tương tự con trỏ tới struct trong C).
     def logits(self, obs: dict) -> torch.Tensor:
         # Exact V15 node embedding/scatter/action head; ONLY conv uses edge_attr.
@@ -266,7 +272,7 @@ class TrafficRoutingActor(TobiasGraphRoutingActor):
         node = self.node_encoder(node_info)
 
         #==================== MỤC NHỎ - GHÉP THÔNG TIN GIAO THÔNG =====================
-        # Tính edge_attr lại ở MỖI quyết định từ obs, không dùng history cache.
+        # 7 edge features tính ở mỗi quyết định, không dùng history cache/oracle.
         edge_attr = self.traffic_features(obs)
 
         #======================== MỤC NHỎ - HAI LỚP EDGE-GATV2 ========================
@@ -299,58 +305,58 @@ class TrafficRoutingActor(TobiasGraphRoutingActor):
 
 
 #============================ MODULE 05 - HÀM INSTALL_V16B ============================
-# Dựng V15 trước, sau đó thay riêng Routing Actor bằng TrafficRoutingActor V16-B.
+# Dựng V15 trước, sau đó thay riêng Routing Actor bằng TrafficRoutingActor V17-B.
 def install_v16b(model, obs_space, global_feature_dim, graph, v15_install):
     """Install original V15 architecture; replace only routing actor/optimizer."""
     arch = v15_install(model, obs_space, global_feature_dim, graph)
     old = model.roles['routing'].actor
     new = TrafficRoutingActor(graph).to(model.device)
     missing, unexpected = new.load_state_dict(old.state_dict(), strict=False)
-    if set(missing) != {'convs.0.edge_lin.weight', 'convs.1.edge_lin.weight'} or unexpected:
+    v17_new = {f'convs.{k}.{key}.weight'
+               for k in range(2) for key in ('edge_att_lin', 'edge_msg_lin')}
+    if set(missing) != v17_new or unexpected:
         raise RuntimeError(f'Unexpected V15 architecture change: {missing}, {unexpected}')
     model.roles['routing'].actor = new
     model.roles['routing'].actor_optimizer = torch.optim.Adam(new.parameters(), lr=model.cfg.actor_lr)
-    return {**arch, 'routing': 'V16B_Traffic_Edge_GATv2_2x4_32_unmasked',
-            'edge_features': list(EDGE_FEATURE_NAMES), 'traffic_from_actor_observation': True}
+    return {**arch, 'routing': 'V17B_Edge7_Conditioned_Message_GATv2_2x4_32_unmasked',
+             'edge_features': list(EDGE_FEATURE_NAMES),
+             'edge_attention_conditioned': True,
+             'edge_message_conditioned': True,
+             'traffic_from_actor_observation': True}
 #======================= KẾT THÚC MODULE 05 - HÀM INSTALL_V16B ========================
 
 
 
 
 #====================== MODULE 06 - HÀM TRANSFER_V15_CHECKPOINT =======================
-# Warm-start actor/critic/ValueNorm từ checkpoint V15, giữ các trọng số tương thích.
+# V17-B warm-start từ V15 Joint16 EP0, giữ trọng số tương thích, reset Adam Routing.
 def transfer_v15_checkpoint(model, checkpoint):
-    """V15->V16-B conversion: preserve all compatible learned state.
+    """V15 Joint16 EP0 -> V17-B (or exact V17-B strict resume).
 
-    Routing's Adam is RESET because new edge parameters change its parameter
-    groups. This is deliberate; DO NOT claim full optimizer transfer.
-    Dispatch and all critics preserve optimizers and ValueNorm unchanged.
-    A V16-B checkpoint is loaded strictly via MAPPO.load, including all Adam.
+    Actor V15 parameters transferred strictly except 2x(att, message) new
+    edge weights. Routing Actor Adam is reset due to parameter-group changes.
+    Dispatch/critics/ValueNorm and their compatible optimizers are preserved.
     """
     from pathlib import Path
     data = torch.load(str(Path(checkpoint).resolve()), map_location=model.device, weights_only=True)
     if set(data.get('roles', {})) != set(model.roles):
-        raise RuntimeError('Checkpoint missing one of the 3 V15 roles')
+        raise RuntimeError('Checkpoint missing a V15/V17-B role')
     saved_routing = data['roles']['routing']['actor']
-    traffic_keys = {'convs.0.edge_lin.weight', 'convs.1.edge_lin.weight'}
-    present = traffic_keys.intersection(saved_routing)
-    if present:
-        if present != traffic_keys:
-            raise RuntimeError('Partial V16-B edge parameters in checkpoint')
+    keys = {f'convs.{k}.{kind}.weight' for k in range(2)
+            for kind in ('edge_att_lin', 'edge_msg_lin')}
+    if keys.issubset(saved_routing):
+        # Native V17-B: strict reload is required for trustworthy resume.
         model.load(str(Path(checkpoint).resolve()))
-        return 'v16b_strict_resume_all_states'
+        return 'v17b_strict_resume_all_states'
+    if keys.intersection(saved_routing) or any('edge_lin.weight' in k for k in saved_routing):
+        raise RuntimeError('Unsupported partial/V16-B edge checkpoint: use V15 Joint16 EP0')
 
     for name, net in model.roles.items():
-
-        #========================= MỤC NHỎ - ĐỌC TRỌNG SỐ GỐC =========================
-        # Lấy state_dict của V15 để warm-start các phần không thay đổi.
         saved = data['roles'][name]
         if name == 'routing':
             missing, unexpected = net.actor.load_state_dict(saved['actor'], strict=False)
-            if set(missing) != traffic_keys or unexpected:
-                raise RuntimeError(f'V15 Routing actor incompatible: {missing} {unexpected}')
-            # Edge weights zero, other routing weights exactly from V15.
-            # Reset routing actor Adam; optimizer from V15 misses new tensors.
+            if set(missing) != keys or unexpected:
+                raise RuntimeError(f'V15 Routing checkpoint incompatible: {missing} {unexpected}')
             net.actor_optimizer = torch.optim.Adam(net.actor.parameters(), lr=model.cfg.actor_lr)
         else:
             net.actor.load_state_dict(saved['actor'], strict=True)

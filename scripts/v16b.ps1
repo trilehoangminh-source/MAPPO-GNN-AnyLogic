@@ -1,19 +1,24 @@
-<#[
-  Run this ONLY after backing up/pushing V15 to GitHub.
-  From thesis/: .\scripts\v16b.ps1 -Action dryrun
-  .\scripts\v16b.ps1 -Action init
-  .\scripts\v16b.ps1 -Action train -MaxEpisodes 500
-  .\scripts\v16b.ps1 -Action eval -Seeds 10
+﻿<#
+  V17-B / Joint16: khởi tạo mới từ V15 Joint16 EP0 (7 features + message).
+  Nguồn DUY NHẤT: mappo_runs/V15_FULLROLLOUT_GA512/joint16/initial_ep_0000.pt
+  Sau khi giải nén đè vào thư mục thesis, chạy trong PowerShell:
+    .\scripts\v16b.ps1 -Action dryrun
+    .\scripts\v16b.ps1 -Action init
+    .\scripts\v16b.ps1 -Action train -MaxEpisodes 1000
+
+  CHÚ Ý: DỪNG training V16-B trước khi giải nén code V17-B; V17-B output tách biệt.
+  -Action init TỪ CHỐI khi thư mục V17-B đã có dữ liệu.
+  Không đụng đến checkpoint/metrics V16-B hay V15.
+  -Action train từ chối resume run có checkpoint nguồn khác Joint16 EP0.
+  Routing đổi thành 7 Edge Features + edge-conditioned Attention/Message;
+  giữ nguyên PPO, Reward, Dispatch, Java, Routing action mask=OFF.
 #>
 #========================== MODULE 01 - THAM SỐ POWERSHELL ==========================
-# Người dùng chọn dryrun / init / train / eval và số episode, seed, cổng.
-# Đây là file điều phối V16-B, không chứa PPO hay GNN.
+# Script entrypoint GỐC v16b.ps1 được dùng cho V17-B (không tạo script mới).
 
 param(
     [ValidateSet('dryrun','init','train','eval')][string]$Action = 'dryrun',
     [int]$MaxEpisodes = 500,
-    [ValidateSet('joint12','joint16')][string]$WarmstartPhase = 'joint12',
-    [int]$WarmstartEp = 850,
     [int]$Seeds = 10,
     [int]$FirstSeed = 900001,
     [int]$Port = 51890
@@ -22,29 +27,36 @@ param(
 #====================== KẾT THÚC MODULE 01 - THAM SỐ POWERSHELL ======================
 
 
-
 #======================= MODULE 02 - ĐỊNH VỊ PYTHON VÀ CÁC RUN =======================
-# Xác định thư mục thesis, .venv311, V15 checkpoint nguồn và V16-B output.
+# Nguồn cố định V15 JOINT16 EP0; V17-B luôn ghi output riêng, không đụng V16-B.
 
 $ErrorActionPreference = 'Stop'
 $thesis = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 Set-Location $thesis
 $py = Join-Path $thesis '.venv311\Scripts\python.exe'
-if (-not (Test-Path $py)) { throw "Python not found: $py" }
+if (-not (Test-Path -LiteralPath $py)) { throw "Python not found: $py" }
+
 $v15Root = Join-Path $thesis 'mappo_runs\V15_FULLROLLOUT_GA512'
-$v16Root = Join-Path $thesis 'mappo_runs\V16B_TRAFFIC_EDGE_GATV2_GA512'
+$v17Root = Join-Path $thesis 'mappo_runs\V17B_EDGE7_MSG_GA512'
 $reference = Join-Path $v15Root 'joint16'
-if (-not (Test-Path (Join-Path $reference 'experiment.json'))) {
-  throw 'Missing V15/joint16/experiment.json; configure reference path in script.'
+$refMetaFile = Join-Path $reference 'experiment.json'
+if (-not (Test-Path -LiteralPath $refMetaFile)) {
+  throw 'Missing V15/joint16/experiment.json; cannot derive source run settings.'
 }
-$meta = Get-Content (Join-Path $reference 'experiment.json') -Raw | ConvertFrom-Json
+$meta = Get-Content -LiteralPath $refMetaFile -Raw | ConvertFrom-Json
 $bp = (Resolve-Path (Join-Path $reference 'run_config_blueprint.json')).Path
 
-#================= MODULE CON 02A - TẠO DANH SÁCH THAM SỐ DÙNG CHUNG =================
-# Dùng mảng @() để truyền đúng options cho Python qua PowerShell.
+# IMPORTANT: EP0 is joint16's saved initial state, not snapshot_ep_0850.pt.
+$sourceCheckpoint = Join-Path $reference 'initial_ep_0000.pt'
+if (-not (Test-Path -LiteralPath $sourceCheckpoint)) {
+  throw "Missing V15 Joint16 EP0 checkpoint: $sourceCheckpoint"
+}
+$sourceCheckpoint = (Resolve-Path -LiteralPath $sourceCheckpoint).Path
+$sourceHash = (Get-FileHash -LiteralPath $sourceCheckpoint -Algorithm SHA256).Hash.ToLowerInvariant()
 
+#================= MODULE CON 02A - TẠO DANH SÁCH THAM SỐ DÙNG CHUNG =================
 $common = @(
-  '--phase','joint16', '--output-root',$v16Root,
+  '--phase','joint16', '--output-root',$v17Root,
   '--blueprint',$bp, '--model',"$($meta.model_file)",
   '--device',"$($meta.device)", '--seed',"$($meta.base_seed)",
   '--max-events',"$($meta.max_events)",
@@ -54,57 +66,67 @@ $common = @(
   '--port',"$Port"
 )
 
-#================== KẾT THÚC MODULE 02 - ĐỊNH VỊ PYTHON VÀ CÁC RUN ==================
+#================== MODULE CON 02B - KIỂM TRA ĐÚNG CHECKPOINT NGUỒN =================
+# -Action train chỉ resume được run V17-B bắt đầu từ đúng V15 Joint16 EP0.
+function Assert-CorrectRunSource {
+    param([string]$RunRoot, [string]$ExpectedSource, [string]$ExpectedHash)
 
-
-
-#========================= MODULE 03 - CHỌN CHẾ ĐỘ HOẠT ĐỘNG =========================
-# dryrun: kiểm tra không train; init: tạo EP0 từ V15.
-# train: --resume; eval: chạy held-out checkpoint V16-B.
-
-$runner = Join-Path $thesis 'scripts\train_v16b_fullrollout.py'
-
-#=== PHẦN 03A: DRYRUN HOẶC INIT (TÌM SNAPSHOT V15) ===
-if ($Action -eq 'dryrun' -or $Action -eq 'init') {
-  $src = Join-Path $v15Root $WarmstartPhase
-  $file = ('snapshot_ep_{0:D4}.pt' -f $WarmstartEp)
-  $ck = Join-Path $src $file
-  if (-not (Test-Path $ck)) { throw "V15 warmstart checkpoint missing: $ck" }
-  $ck = (Resolve-Path $ck).Path
-  Write-Host "V16B source: $ck"
-  Write-Host "V16B output root: $v16Root"
-  if ($Action -eq 'dryrun') {
-    & $py -u $runner @common '--init-checkpoint' $ck '--max-episodes' '0' '--dry-run'
-  } else {
-    if (Test-Path (Join-Path $v16Root 'joint16\state.json')) {
-      throw 'V16B Joint16 already initialized. Use -Action train, not init.'
+    $expFile = Join-Path $RunRoot 'joint16\experiment.json'
+    $stateFile = Join-Path $RunRoot 'joint16\state.json'
+    if (-not (Test-Path -LiteralPath $expFile) -or -not (Test-Path -LiteralPath $stateFile)) {
+        throw 'V17-B has not been initialized. Run .\scripts\v16b.ps1 -Action init first.'
     }
-    & $py -u $runner @common '--init-checkpoint' $ck '--max-episodes' '0' '--init-only'
-  }
 
-#=== PHẦN 03B: RESUME TRAINING V16-B ===
-} elseif ($Action -eq 'train') {
-  if (-not (Test-Path (Join-Path $v16Root 'joint16\state.json'))) {
-    throw 'Initialize first: .\scripts\v16b.ps1 -Action init'
-  }
-  & $py -u $runner @common '--max-episodes' "$MaxEpisodes" '--resume'
+    $runExp = Get-Content -LiteralPath $expFile -Raw | ConvertFrom-Json
+    $runState = Get-Content -LiteralPath $stateFile -Raw | ConvertFrom-Json
+    $recordedSource = [string]$runExp.source_checkpoint
+    $recordedHash = [string]$runExp.source_checkpoint_sha256
+    $stateSource = [string]$runState.source_checkpoint
 
-#=== PHẦN 03C: HELD-OUT EVALUATION ===
-} else {
-  $eval = Join-Path $thesis 'scripts\evaluate_v16b_traffic.py'
-  $evalargs = @('--phase','joint16','--output-root',$v16Root,
-    '--device',"$($meta.device)",'--port',"$Port",'--seeds',"$Seeds",
-    '--first-seed',"$FirstSeed")
-  & $py -u $eval @evalargs
+    if (($recordedSource -ne $ExpectedSource) -or
+        ($stateSource -ne $ExpectedSource) -or
+        ($recordedHash.ToLowerInvariant() -ne $ExpectedHash)) {
+        throw @'
+STOP: V17-B run hien tai KHONG khoi tao tu V15 Joint16 initial_ep_0000.pt.
+KHONG ghi de run cu. Kiem tra experiment.json/state.json, sau do xu ly thu cong.
+Khong tu dong khoi tao lai neu dang co checkpoint.
+'@
+    }
 }
 
-#==================== KẾT THÚC MODULE 03 - CHỌN CHẾ ĐỘ HOẠT ĐỘNG ====================
+#========================= MODULE 03 - CHỌN CHẾ ĐỘ HOẠT ĐỘNG =========================
+$runner = Join-Path $thesis 'scripts\train_v16b_fullrollout.py'
 
+if ($Action -eq 'dryrun') {
+    Write-Host "[V17B JOINT16 EP0 DRYRUN] Source: $sourceCheckpoint"
+    Write-Host "[V17B JOINT16 EP0 DRYRUN] SHA256: $sourceHash"
+    & $py -u $runner @common '--init-checkpoint' $sourceCheckpoint '--max-episodes' '0' '--dry-run'
 
+} elseif ($Action -eq 'init') {
+    # Chặn chạy init lần thứ hai để không mất checkpoint V17-B.
+    Write-Host "[V17B JOINT16 EP0 INIT] Source: $sourceCheckpoint"
+    Write-Host "[V17B JOINT16 EP0 INIT] SHA256: $sourceHash"
+    if (Test-Path -LiteralPath $v17Root) {
+        $existing = @(Get-ChildItem -LiteralPath $v17Root -Force)
+        if ($existing.Count -gt 0) {
+            throw "V17-B output already exists. Do NOT re-init or overwrite: $v17Root. Use -Action train."
+        }
+    }
+    & $py -u $runner @common '--init-checkpoint' $sourceCheckpoint '--max-episodes' '0' '--init-only'
+
+} elseif ($Action -eq 'train') {
+    Assert-CorrectRunSource -RunRoot $v17Root -ExpectedSource $sourceCheckpoint -ExpectedHash $sourceHash
+    & $py -u $runner @common '--max-episodes' "$MaxEpisodes" '--resume'
+
+} else {
+    Assert-CorrectRunSource -RunRoot $v17Root -ExpectedSource $sourceCheckpoint -ExpectedHash $sourceHash
+    $eval = Join-Path $thesis 'scripts\evaluate_v16b_traffic.py'
+    $evalargs = @('--phase','joint16','--output-root',$v17Root,
+      '--device',"$($meta.device)",'--port',"$Port",'--seeds',"$Seeds",
+      '--first-seed',"$FirstSeed")
+    & $py -u $eval @evalargs
+}
 
 #======================= MODULE 04 - KIỂM TRA MÃ THOÁT PYTHON =======================
-# Nếu chương trình Python báo lỗi, PowerShell ném exception và không im lặng bỏ qua.
-
-if ($LASTEXITCODE -ne 0) { throw "V16B $Action failed, exit code $LASTEXITCODE" }
-
+if ($LASTEXITCODE -ne 0) { throw "V17B $Action failed, exit code $LASTEXITCODE" }
 #=================== KẾT THÚC MODULE 04 - KIỂM TRA MÃ THOÁT PYTHON ===================
