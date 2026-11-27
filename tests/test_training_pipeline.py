@@ -269,6 +269,32 @@ class TestTrainingPipeline(unittest.TestCase):
         self.assertRaises(SystemExit,runner.parse_args,
                           ['--phase','joint8','--init-checkpoint','missing.pt'])
 
+    def test_joint20_checkpoint_initialization_and_resume_are_distinct(self):
+        from tempfile import TemporaryDirectory
+        runner=load(Path('scripts/train.py'),'train')
+        with TemporaryDirectory() as folder:
+            checkpoint=Path(folder)/'snapshot_ep_0490.pt'
+            checkpoint.write_bytes(b'parser fixture')
+            args=['--phase','joint20','--port','0',
+                  '--init-checkpoint',str(checkpoint)]
+            cfg=runner.parse_args(args)
+            self.assertEqual(cfg.init_checkpoint,checkpoint)
+            self.assertEqual(stage.PHASES[cfg.phase][0],20)
+            self.assertFalse(cfg.resume)
+            self.assertRaises(SystemExit,runner.parse_args,args+['--resume'])
+            self.assertRaises(SystemExit,runner.parse_args,
+                              ['--phase','joint12','--init-checkpoint',str(checkpoint)])
+            resumed=runner.parse_args(['--phase','joint20','--resume','--port','0'])
+            self.assertTrue(resumed.resume)
+            self.assertIsNone(resumed.init_checkpoint)
+
+    def test_training_rejects_ports_outside_tcp_range(self):
+        runner=load(Path('scripts/train.py'),'train')
+        for port in ('-1','65536'):
+            with self.subTest(port=port):
+                self.assertRaises(SystemExit,runner.parse_args,
+                                  ['--phase','joint20','--port',port])
+
     def test_source_does_not_import_guidance(self):
         content=(ROOT/'scripts/model_builder.py').read_text(encoding='utf-8')
         self.assertNotIn('from thesis.mappo.routing_guidance import',content)

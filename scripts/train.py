@@ -8,6 +8,9 @@ CollisionFreeRouting with time-window reservations (not GAT guidance).
 Phase order: routing8 -> dispatch8 -> joint8 -> joint12 -> joint16 -> joint20
 Each phase starts at its own EP0. Every next phase inherits full role weights,
 critics, ValueNorm and Adam optimizers from the preceding phase checkpoint.
+For a fresh joint16/joint20 run, --init-checkpoint selects an external source
+explicitly and records its path/hash under the current run's source fingerprint.
+Subsequent invocations use --resume and the new phase's committed checkpoint.
 """
 #===================== MODULE 00 - IMPORT, ĐƯỜNG DẪN VÀ HẰNG SỐ =====================
 # Mục đích: Nạp thư viện, định vị thư mục thesis và liệt kê phase training.
@@ -124,10 +127,10 @@ def parse_args(argv=None):
     p.add_argument('--phase',choices=PHASE_ORDER,required=True)
     p.add_argument('--max-episodes',type=int,default=1,help='Max completed EP in THIS phase, beginning from 0')
     p.add_argument('--blueprint',type=Path,default=None)
-    p.add_argument('--model',type=Path,default=None,help='Existing original AnyLogic simulator .zip; overrides blueprint model_file')
+    p.add_argument('--model',type=Path,default=None,help='AnyLogic RL simulator .zip for this run; overrides blueprint model_file')
     p.add_argument('--output-root',type=Path,default=DEFAULT_OUT)
     p.add_argument('--device',default='cuda:0')
-    p.add_argument('--port',type=int,default=51880)
+    p.add_argument('--port',type=int,default=51880,help='Alpyne server port; 0 selects a free port automatically')
     p.add_argument('--seed',type=int,default=None)
     p.add_argument('--max-events',type=int,default=None)
     p.add_argument('--microbatch-size',dest='max_minibatch',type=int,default=512)
@@ -139,13 +142,13 @@ def parse_args(argv=None):
     p.add_argument('--joint-routing-ep',type=int,default=None,help='For fresh joint8 only: routing8 snapshot episode')
     p.add_argument('--joint-dispatch-ep',type=int,default=None,help='For fresh joint8 only: dispatch8 snapshot episode')
     p.add_argument('--init-checkpoint',type=Path,default=None,
-                   help='For fresh joint16 EP0: old joint16/initial_ep_0000.pt (or compatible checkpoint)')
+                   help='Initialize a fresh joint16 or joint20 EP0 from a compatible checkpoint; joint20 requires native V17-B')
     a=p.parse_args(argv)
-    if a.max_episodes<0 or a.max_minibatch<1 or a.cpu_threads<1 or a.snapshot_every<1 or not 1<=a.port<=65535:
+    if a.max_episodes<0 or a.max_minibatch<1 or a.cpu_threads<1 or a.snapshot_every<1 or not 0<=a.port<=65535:
         p.error('Invalid episode/minibatch/threads/snapshot/port')
     if a.resume and a.init_only:p.error('--resume and --init-only are mutually exclusive')
     if a.init_checkpoint is not None:
-        if a.phase!='joint16':p.error('--init-checkpoint works only for joint16')
+        if a.phase not in ('joint16','joint20'):p.error('--init-checkpoint works only for joint16/joint20')
         if a.resume:p.error('Do not combine --init-checkpoint and --resume')
         if not a.init_checkpoint.is_file():p.error('Missing --init-checkpoint file')
     chosen=(a.joint_routing_ep is not None,a.joint_dispatch_ep is not None)
@@ -426,7 +429,7 @@ def run(argv=None):
         if joint_sources:
             print('[TRAIN DRY RUN OK] joint8 role-wise sources:',joint_sources,flush=True)
         if a.init_checkpoint is not None:
-            print('[TRAIN DRY RUN OK] joint16 EP0 source:',expected['init_checkpoint'],
+            print('[TRAIN DRY RUN OK]',a.phase,'EP0 source:',expected['init_checkpoint'],
                   'sha256=',expected['init_checkpoint_sha256'],flush=True)
         print('[TRAIN DRY RUN OK] Dispatch mask=Tobias original union',flush=True)
         print('[TRAIN DRY RUN OK] no environment launched and no output modified')
@@ -489,6 +492,8 @@ def run(argv=None):
         #=================== PHẦN RUN-05 - KHỞI TẠO ANYLOGIC VÀ MẠNG MAPPO ===================
         # Builder cung cấp environment, ba role và đồ thị giao thông.
 
+        if a.init_checkpoint is not None and _digest(ck)!=expected['init_checkpoint_sha256']:
+            raise RuntimeError('Initial checkpoint changed after preflight')
         env,model,graph,arch=build_model(cfg,model_path=simulator,
             fleet_size=PHASES[a.phase][0],port=a.port,device=a.device,seed=a.seed,
             max_events=a.max_events,sim_seconds=3600,checkpoint=ck,phase=a.phase)
@@ -500,6 +505,8 @@ def run(argv=None):
             raise
         if a.init_checkpoint is not None:
             from dataclasses import asdict
+            if a.phase=='joint20' and arch.get('checkpoint_transfer')!='v17b_strict_resume_all_states':
+                raise RuntimeError('Joint20 initialization requires a native V17-B checkpoint with all states loaded strictly')
             loaded_cfg=torch.load(str(ck),map_location='cpu',weights_only=True).get('config')
             if loaded_cfg!=asdict(model.cfg):
                 raise RuntimeError('Initial checkpoint MAPPOConfig differs from current configuration')
