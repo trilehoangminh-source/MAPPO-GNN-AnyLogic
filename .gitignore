@@ -25,3 +25,6 @@ mappo_runs/
 
 # Archived projects and backups
 *.zip
+
+# Internal project notes and context
+/Readme/
